@@ -27,7 +27,7 @@ import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../src/lib/supabase";
+import { supabase } from "../src/lib/supabase.js";
 
 export default function ClientStatusPage() {
   const [clients, setClients] = useState([]);

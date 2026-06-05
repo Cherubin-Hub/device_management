@@ -25,7 +25,7 @@ import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../src/lib/supabase";
+import { supabase } from "../src/lib/supabase.js";
 
 const blankInventoryItem = {
   dateDelivered: "",
