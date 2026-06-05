@@ -298,7 +298,7 @@ export default function InventoryPage() {
                 <TableCell align="center">Client</TableCell>
                 <TableCell align="center">Status</TableCell>
                 <TableCell align="center">Remarks</TableCell>
-                <TableCell>Date Deployed</TableCell>
+                <TableCell align="center">Date Deployed</TableCell>
                 <TableCell width={96} align="center">Actions</TableCell>
               </TableRow>
             </TableHead>
