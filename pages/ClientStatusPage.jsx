@@ -42,6 +42,12 @@ export default function ClientStatusPage() {
     let ignore = false;
 
     async function loadData() {
+      if (!supabase) {
+        setError("Supabase not configured");
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       const [clientsResult, statusesResult] = await Promise.all([
         supabase

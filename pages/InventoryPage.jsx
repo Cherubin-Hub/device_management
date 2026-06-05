@@ -54,6 +54,12 @@ export default function InventoryPage() {
     let ignore = false;
 
     async function loadAllData() {
+      if (!supabase) {
+        setError("Supabase not configured");
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       const [itemsResult, clientsResult, statusesResult] = await Promise.all([
         supabase
