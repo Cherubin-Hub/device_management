@@ -2,7 +2,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "env": {
-    "VITE_API_URL": "https://your-api.com"
+    "VITE_SUPABASE_URL": "https://ncjxbuvpjlfxezpzcbms.supabase.co",
+    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5janhidXZwamxmeGV6cHpjYm1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2NTA4OTksImV4cCI6MjA5NjIyNjg5OX0.Vb2IEcgYQIsRorMOkTHxdgw4XayWuY589MjlNPRZCD0"
   },
   "rewrites": [
     {
