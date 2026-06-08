@@ -1,6 +1,7 @@
 import {
   Box,
   Divider,
+  MenuItem,
   TextField,
   Typography,
   Stack
@@ -18,7 +19,7 @@ const textFieldProps = {
   },
 };
 
-export default function DeviceInfo({ deviceInfo, onChange }) {
+export default function DeviceInfo({ clients = [], deviceInfo, onChange, onClientChange }) {
   const updateField = (field) => (event) => {
     onChange(field, event.target.value);
   };
@@ -69,9 +70,26 @@ export default function DeviceInfo({ deviceInfo, onChange }) {
 
         <TextField
           label="Client Name"
-          placeholder="Client Name"
-          value={deviceInfo.clientName}
-          onChange={updateField("clientName")}
+          value={deviceInfo.clientId || ""}
+          onChange={(event) => {
+            const selectedClient = clients.find((client) => String(client.id) === String(event.target.value));
+            onClientChange?.(selectedClient || null);
+          }}
+          select
+          {...textFieldProps}
+        >
+          <MenuItem value="">Select Client</MenuItem>
+          {clients.map((client) => (
+            <MenuItem key={client.id} value={client.id}>
+              {client.name}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          label="Client Code"
+          value={deviceInfo.clientCode || ""}
+          InputProps={{ readOnly: true }}
           {...textFieldProps}
         />
 

@@ -6,7 +6,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -15,10 +15,13 @@ import DeviceInfo from "../components/DeviceInfo";
 import TestChecklist from "../components/TestChecklist";
 import ApprovalSection from "../components/ApprovalSection";
 import { tests } from "../components/testScripts";
+import { supabase } from "../src/lib/supabase.js";
 
 const initialDeviceInfo = {
   cstNumber: "",
+  clientId: "",
   clientName: "",
+  clientCode: "",
   arrivalDate: "",
   deviceSerialNumber: "",
   deviceType: "",
@@ -37,6 +40,7 @@ const initialApproval = {
 
 export default function DeviceTestingPage() {
   const [deviceInfo, setDeviceInfo] = useState(initialDeviceInfo);
+  const [clients, setClients] = useState([]);
   const [testResults, setTestResults] = useState(
     tests.map(() => ({
       status: "",
@@ -50,10 +54,45 @@ export default function DeviceTestingPage() {
     [testResults]
   );
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadClients() {
+      if (!supabase) {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id, name, client_code")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+
+      if (!ignore && !error) {
+        setClients(data || []);
+      }
+    }
+
+    loadClients();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   const handleDeviceInfoChange = (field, value) => {
     setDeviceInfo((current) => ({
       ...current,
       [field]: value,
+    }));
+  };
+
+  const handleClientChange = (client) => {
+    setDeviceInfo((current) => ({
+      ...current,
+      clientId: client?.id || "",
+      clientName: client?.name || "",
+      clientCode: client?.client_code || "",
     }));
   };
 
@@ -91,6 +130,7 @@ export default function DeviceTestingPage() {
       body: [
         ["CST Number", valueOrBlank(deviceInfo.cstNumber)],
         ["Client Name", valueOrBlank(deviceInfo.clientName)],
+        ["Client Code", valueOrBlank(deviceInfo.clientCode)],
         ["Arrival Date", valueOrBlank(deviceInfo.arrivalDate)],
         ["Device Serial Number", valueOrBlank(deviceInfo.deviceSerialNumber)],
         ["Device Type", valueOrBlank(deviceInfo.deviceType)],
@@ -210,8 +250,10 @@ export default function DeviceTestingPage() {
       >
         <Paper elevation={0} sx={panelSx}>
           <DeviceInfo
+            clients={clients}
             deviceInfo={deviceInfo}
             onChange={handleDeviceInfoChange}
+            onClientChange={handleClientChange}
           />
         </Paper>
 

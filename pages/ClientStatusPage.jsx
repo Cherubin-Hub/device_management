@@ -52,7 +52,7 @@ export default function ClientStatusPage() {
       const [clientsResult, statusesResult] = await Promise.all([
         supabase
           .from("clients")
-          .select("id, name, is_active")
+          .select("id, name, client_code, is_active")
           .order("name", { ascending: true }),
         supabase
           .from("statuses")
@@ -117,6 +117,7 @@ export default function ClientStatusPage() {
   const handleCreateOption = async (type, value) => {
     const payload = {
       name: value.name.trim(),
+      ...(type === "client" ? { client_code: value.clientCode.trim() } : {}),
       ...(type === "status" ? { color: value.color || "#4b5563" } : {}),
       is_active: true,
     };
@@ -146,6 +147,7 @@ export default function ClientStatusPage() {
     const table = type === "client" ? "clients" : "statuses";
     const payload = {
       name: value.name.trim(),
+      ...(type === "client" ? { client_code: value.clientCode.trim() } : {}),
       ...(type === "status" ? { color: value.color || "#4b5563" } : {}),
     };
     const { data, error: updateError } = await supabase
@@ -297,16 +299,16 @@ export default function ClientStatusPage() {
             }}
             aria-label="configuration tabs"
           >
-            <Tab label="Clients" />
-            <Tab label="Statuses" />
+            <Tab align="center" label="Clients" />
+            <Tab align="center" label="Status" />
           </Tabs>
         </Box>
-
         <TableContainer sx={{ overflowX: "auto" }}>
           <Table sx={{ minWidth: 900 }} size="small">
             <TableHead>
               <TableRow>
                 <TableCell width={64} align="center">No.</TableCell>
+                {itemType === "client" ? <TableCell width={140}>Client Code</TableCell> : null}
                 <TableCell>{itemType === "client" ? "Client Name" : "Status Name"}</TableCell>
                 {itemType === "status" ? <TableCell align="center">Color</TableCell> : null}
                 <TableCell align="center">Status</TableCell>
@@ -318,7 +320,7 @@ export default function ClientStatusPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={itemType === "status" ? 6 : 5}
+                    colSpan={itemType === "status" ? 6 : 6}
                     align="center"
                     sx={{ py: 4 }}
                   >
@@ -329,7 +331,7 @@ export default function ClientStatusPage() {
               {!isLoading && currentItems.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={itemType === "status" ? 6 : 5}
+                    colSpan={itemType === "status" ? 6 : 6}
                     align="center"
                     sx={{ py: 4 }}
                   >
@@ -353,6 +355,13 @@ export default function ClientStatusPage() {
                     <TableCell align="center" component="th" scope="row">
                       {index + 1}
                     </TableCell>
+                    {itemType === "client" ? (
+                      <TableCell>
+                        <Typography fontWeight={800} variant="body2">
+                          {item.client_code || "-"}
+                        </Typography>
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <Stack direction="row" spacing={1} alignItems="center">
                         {item.color ? (
@@ -442,7 +451,7 @@ export default function ClientStatusPage() {
           initialValue={
             dialogMode === "edit"
               ? selectedItem
-              : { name: "", color: "#4b5563" }
+              : { name: "", client_code: "", color: "#4b5563" }
           }
           itemType={itemType}
           mode={dialogMode}
@@ -460,12 +469,14 @@ const sortByName = (first, second) => first.name.localeCompare(second.name);
 function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, onUpdate }) {
   const [form, setForm] = useState({
     name: initialValue?.name || "",
+    clientCode: initialValue?.client_code || "",
     color: initialValue?.color || "#4b5563",
   });
 
   const title = `${mode === "new" ? "New" : "Edit"} ${itemType === "client" ? "Client" : "Status"}`;
+  const canSave = form.name.trim() && (itemType === "status" || form.clientCode.trim());
   const handleSave = () => {
-    if (!form.name.trim()) {
+    if (!canSave) {
       return;
     }
     if (mode === "new") {
@@ -489,6 +500,17 @@ function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, o
               setForm((current) => ({ ...current, name: event.target.value }))
             }
           />
+          {itemType === "client" ? (
+            <TextField
+              label="Client Code"
+              required
+              fullWidth
+              value={form.clientCode}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, clientCode: event.target.value }))
+              }
+            />
+          ) : null}
           {itemType === "status" ? (
             <TextField
               label="Color"
@@ -505,7 +527,7 @@ function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, o
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={!form.name.trim()}>
+        <Button variant="contained" onClick={handleSave} disabled={!canSave}>
           Save
         </Button>
       </DialogActions>

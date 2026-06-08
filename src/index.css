@@ -15,7 +15,7 @@
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
-  font: 16px/145% var(--sans);
+  font: 14px/145% var(--sans);
   letter-spacing: 0;
   color-scheme: light;
   color: var(--text);
@@ -30,6 +30,13 @@
 body {
   margin: 0;
   min-width: 320px;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 #root {

@@ -1,104 +1,164 @@
 import {
   Box,
-  List,
-  ListItemButton,
-  ListItemText,
+  Stack,
   Typography,
 } from "@mui/material";
-import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
+import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { useState } from "react";
 import "./App.css";
-import DeviceTestingPage from "../pages/DeviceTestingPage";
-import InventoryPage from "../pages/InventoryPage";
 import ClientStatusPage from "../pages/ClientStatusPage";
+import DeviceManagementPage from "../pages/InventoryRecordsPage";
+import DeviceTestingPage from "../pages/DeviceTestingPage";
+import OngoingTestingPage from "../pages/OngoingTestingPage";
 
 function App() {
-  const [activePage, setActivePage] = useState("inventory");
+  const [activePage, setActivePage] = useState("deviceInventoryRecords");
+  const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(true);
 
   return (
     <Box sx={{ display: "flex", minHeight: "100svh", bgcolor: "#f6f8fb" }}>
       <Box
         component="aside"
         sx={{
-          bgcolor: "#ffffff",
-          borderRight: "1px solid #dde5ef",
+          bgcolor: "#2f3940",
+          color: "#f8fafc",
           display: { xs: "none", md: "flex" },
           flexDirection: "column",
-          gap: 2,
-          p: 2,
           position: "sticky",
           top: 0,
-          width: 292,
+          width: 232,
           height: "100svh",
           overflowY: "auto",
         }}
       >
-        <Box>
-          <Typography variant="h6" fontWeight={900}>
-            Device Management
-          </Typography>
-        </Box>
+        <SidebarItem
+          active={activePage === "dashboard"}
+          icon={<HomeRoundedIcon fontSize="small" />}
+          label="Dashboard"
+          onClick={() => setActivePage("dashboard")}
+        />
 
-        <List disablePadding sx={{ display: "grid", gap: 0.75 }}>
-          <SidebarNavItem
-            active={activePage === "inventory"}
-            icon={<Inventory2RoundedIcon fontSize="small" />}
-            label="Inventory"
-            onClick={() => setActivePage("inventory")}
-          />
-          <SidebarNavItem
-            active={activePage === "testing"}
-            icon={<AssignmentTurnedInRoundedIcon fontSize="small" />}
-            label="Testing Report"
-            onClick={() => setActivePage("testing")}
-          />
-          <SidebarNavItem
-            active={activePage === "configurations"}
-            icon={<SettingsRoundedIcon fontSize="small" />}
-            label="Configurations"
-            onClick={() => setActivePage("configurations")}
-          />
-        </List>
+        <SidebarGroup
+          icon={<Inventory2RoundedIcon fontSize="small" />}
+          label="Device Inventory"
+          open={deviceInventoryOpen}
+          onClick={() => setDeviceInventoryOpen((current) => !current)}
+        />
 
+        {deviceInventoryOpen ? (
+          <Stack>
+            <SidebarItem
+              active={activePage === "deviceInventoryRecords"}
+              child
+              icon={<Inventory2RoundedIcon fontSize="small" />}
+              label="Inventory Records"
+              onClick={() => setActivePage("deviceInventoryRecords")}
+            />
+            <SidebarItem
+              active={activePage === "ongoingTesting"}
+              child
+              icon={<AssessmentRoundedIcon fontSize="small" />}
+              label="Ongoing Testing"
+              onClick={() => setActivePage("ongoingTesting")}
+            />
+            <SidebarItem
+              active={activePage === "clientStatusSetup"}
+              child
+              icon={<SettingsRoundedIcon fontSize="small" />}
+              label="Client & Status Setup"
+              onClick={() => setActivePage("clientStatusSetup")}
+            />
+          </Stack>
+        ) : null}
 
+        {/* <SidebarItem
+          active={activePage === "testing"}
+          icon={<AssessmentRoundedIcon fontSize="small" />}
+          label="Testing Report"
+          onClick={() => setActivePage("testing")}
+        /> */}
       </Box>
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        {activePage === "inventory" ? (
-          <InventoryPage />
-        ) : activePage === "testing" ? (
-          <DeviceTestingPage />
-        ) : (
-          <ClientStatusPage />
-        )}
+        {activePage === "deviceInventoryRecords" ? <DeviceManagementPage /> : null}
+        {activePage === "ongoingTesting" ? <OngoingTestingPage /> : null}
+        {activePage === "clientStatusSetup" ? <ClientStatusPage /> : null}
+        {activePage === "testing" ? <DeviceTestingPage /> : null}
+        {activePage === "dashboard" ? (
+          <Box sx={{ p: 4 }}>
+            <Typography variant="h5" component="h1" fontWeight={900}>
+              Dashboard
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Select a module from the sidebar.
+            </Typography>
+          </Box>
+        ) : null}
       </Box>
     </Box>
   );
 }
 
-function SidebarNavItem({ active, icon, label, onClick }) {
+function SidebarItem({ active, child = false, icon, label, onClick }) {
   return (
-    <ListItemButton
+    <Box
       onClick={onClick}
-      selected={active}
       sx={{
-        borderRadius: 1.5,
-        gap: 1,
-        "&.Mui-selected": {
-          bgcolor: "#e8f2ff",
-          color: "#1f5f99",
-          fontWeight: 800,
+        alignItems: "center",
+        bgcolor: active ? "#1f2933" : "transparent",
+        borderLeft: active ? "4px solid #38bdf8" : "4px solid transparent",
+        color: active ? "#ffffff" : "#dbe7ef",
+        cursor: "pointer",
+        display: "grid",
+        gap: 0.75,
+        gridTemplateColumns: "22px 1fr",
+        minHeight: 38,
+        pl: child ? 4 : 1.5,
+        pr: 1,
+        py: 0.6,
+        "&:hover": {
+          bgcolor: "#37444d",
+          color: "#ffffff",
         },
       }}
     >
       {icon}
-      <ListItemText
-        primary={label}
-        primaryTypographyProps={{ fontSize: 14, fontWeight: active ? 800 : 700 }}
-      />
-    </ListItemButton>
+      <Typography variant="body2" fontWeight={active ? 900 : 700} noWrap>
+        {label}
+      </Typography>
+    </Box>
+  );
+}
+
+function SidebarGroup({ icon, label, onClick, open }) {
+  return (
+    <Box
+      onClick={onClick}
+      sx={{
+        alignItems: "center",
+        bgcolor: "#3a454c",
+        color: "#38bdf8",
+        cursor: "pointer",
+        display: "grid",
+        gap: 0.75,
+        gridTemplateColumns: "22px 22px 1fr",
+        minHeight: 38,
+        pl: 1.5,
+        pr: 1,
+        py: 0.6,
+      }}
+    >
+      {open ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+      {icon}
+      <Typography variant="body2" fontWeight={800} noWrap>
+        {label}
+      </Typography>
+    </Box>
   );
 }
 
