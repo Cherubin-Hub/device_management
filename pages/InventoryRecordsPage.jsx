@@ -264,7 +264,7 @@ export default function DeviceManagementPage() {
         with_adapter: inventoryItem.withAdapter,
         serial_number: inventoryItem.snNumber,
         status_id: inventoryItem.statusId,
-        repair_by: inventoryItem.company,
+        repair_by: null,
         remarks: inventoryItem.remarks,
         source_inventory_id: inventoryItem.id,
       };

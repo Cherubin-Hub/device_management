@@ -1,7 +1,10 @@
 import {
   Box,
+  CssBaseline,
   Stack,
+  ThemeProvider,
   Typography,
+  createTheme,
 } from "@mui/material";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
@@ -9,19 +12,54 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import "./App.css";
-import ClientStatusPage from "../pages/ClientStatusPage";
+import ConfigurationsPage from "../pages/ConfigurationsPage";
+import DashboardPage from "../pages/DashboardPage";
 import DeviceManagementPage from "../pages/InventoryRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
 import OngoingTestingPage from "../pages/OngoingTestingPage";
 
 function App() {
-  const [activePage, setActivePage] = useState("deviceInventoryRecords");
+  const [activePage, setActivePage] = useState("dashboard");
   const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(true);
+  const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "light");
+  const theme = useMemo(
+    () =>
+      createTheme({
+        palette: {
+          mode: themeMode,
+          primary: { main: "#1976d2" },
+          background: {
+            default: themeMode === "dark" ? "#111827" : "#f6f8fb",
+            paper: themeMode === "dark" ? "#1f2937" : "#ffffff",
+          },
+          text: {
+            primary: themeMode === "dark" ? "#f8fafc" : "#172033",
+            secondary: themeMode === "dark" ? "#cbd5e1" : "#4b5b70",
+          },
+        },
+        typography: {
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        },
+        shape: { borderRadius: 8 },
+      }),
+    [themeMode]
+  );
+
+  const toggleThemeMode = () => {
+    setThemeMode((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      localStorage.setItem("endivio-theme", next);
+      return next;
+    });
+  };
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100svh", bgcolor: "#f6f8fb" }}>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ display: "flex", minHeight: "100svh", bgcolor: "background.default" }}>
       <Box
         component="aside"
         sx={{
@@ -67,11 +105,11 @@ function App() {
               onClick={() => setActivePage("ongoingTesting")}
             />
             <SidebarItem
-              active={activePage === "clientStatusSetup"}
+              active={activePage === "ConfigurationsPage"}
               child
               icon={<SettingsRoundedIcon fontSize="small" />}
-              label="Client & Status Setup"
-              onClick={() => setActivePage("clientStatusSetup")}
+              label="Configurations"
+              onClick={() => setActivePage("ConfigurationsPage")}
             />
           </Stack>
         ) : null}
@@ -85,22 +123,16 @@ function App() {
       </Box>
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
+        {activePage === "dashboard" ? (
+          <DashboardPage mode={themeMode} onToggleMode={toggleThemeMode} />
+        ) : null}
         {activePage === "deviceInventoryRecords" ? <DeviceManagementPage /> : null}
         {activePage === "ongoingTesting" ? <OngoingTestingPage /> : null}
-        {activePage === "clientStatusSetup" ? <ClientStatusPage /> : null}
+        {activePage === "ConfigurationsPage" ? <ConfigurationsPage /> : null}
         {activePage === "testing" ? <DeviceTestingPage /> : null}
-        {activePage === "dashboard" ? (
-          <Box sx={{ p: 4 }}>
-            <Typography variant="h5" component="h1" fontWeight={900}>
-              Dashboard
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Select a module from the sidebar.
-            </Typography>
-          </Box>
-        ) : null}
       </Box>
-    </Box>
+      </Box>
+    </ThemeProvider>
   );
 }
 

@@ -29,11 +29,13 @@ import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
+import ArrowDropDownRoundedIcon from "@mui/icons-material/ArrowDropDownRounded";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../src/lib/supabase.js";
 
 const blankTest = {
   clientId: "",
+  clientCode: "",
   dateReceived: "",
   packageStyle: "",
   pictureUrl: "",
@@ -615,9 +617,9 @@ export default function OngoingTestingPage() {
                           setSelectedId(item.id);
                           setDialogMode("edit");
                         }}
-                        sx={{ p: 0.35 }}
+                        sx={{ p: 0.5 }}
                       >
-                        <EditRoundedIcon fontSize="small" />
+                        <EditRoundedIcon sx={{ fontSize: 17 }} />
                       </IconButton>
                       <IconButton
                         size="small"
@@ -627,9 +629,9 @@ export default function OngoingTestingPage() {
                           handleDelete(item.id);
                         }}
                         color="error"
-                        sx={{ p: 0.35 }}
+                        sx={{ p: 0.5 }}
                       >
-                        <DeleteRoundedIcon fontSize="small" />
+                        <DeleteRoundedIcon sx={{ fontSize: 17 }} />
                       </IconButton>
                     </Stack>
                   </TableCell>
@@ -712,6 +714,7 @@ export default function OngoingTestingPage() {
 
 function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
   const [form, setForm] = useState(blankTest);
+  const [clientSelectOpen, setClientSelectOpen] = useState(false);
   const initializedRef = useRef(false);
 
   useEffect(() => {
@@ -719,6 +722,7 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
       initializedRef.current = true;
       setForm({
         clientId: item.clientId || "",
+        clientCode: item.clientCode || "",
         dateReceived: item.dateReceived || "",
         packageStyle: item.packageStyle || "",
         pictureUrl: item.pictureUrl || "",
@@ -744,6 +748,27 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
   const handleChange = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
+  const isEditMode = mode === "edit";
+  const dialogFieldSx = {
+    "& .MuiInputLabel-root": {
+      bgcolor: "#ffffff",
+      px: 0.5,
+    },
+  };
+  const lockedFieldSx = isEditMode
+    ? {
+        ...dialogFieldSx,
+        "& .MuiInputBase-root.Mui-disabled": {
+          bgcolor: "#f3f4f6",
+        },
+        "& .MuiInputBase-input.Mui-disabled": {
+          WebkitTextFillColor: "#6b7280",
+        },
+        "& .MuiInputLabel-root.Mui-disabled": {
+          color: "#6b7280",
+        },
+      }
+    : {};
 
   if (!mode) {
     return null;
@@ -755,43 +780,100 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
         {mode === "new" ? "Add Test Record" : "Edit Test Record"}
       </DialogTitle>
       <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 3.5 }}>
-        <Autocomplete
-          value={clients.find((client) => String(client.id) === String(form.clientId)) || null}
-          onChange={(_, selectedClient) => {
-            setForm((current) => ({ ...current, clientId: selectedClient?.id || "" }));
-          }}
-          options={clients}
-          getOptionLabel={(option) => option?.client_code || ""}
-          filterOptions={(options, state) => {
-            const search = state.inputValue.trim().toLowerCase();
-            return options
-              .filter((client) => {
-                const clientName = String(client.name || "").toLowerCase();
-                const clientCode = String(client.client_code || "").toLowerCase();
-                return !search || clientName.includes(search) || clientCode.includes(search);
-              })
-              .sort((first, second) => first.name.localeCompare(second.name))
-              .slice(0, 10);
-          }}
-          renderInput={(params) => (
-            <TextField {...params} label="Client Code" fullWidth />
-          )}
-        />
+        {isEditMode ? (
+          <TextField
+            label="Client Code"
+            value={form.clientCode || ""}
+            fullWidth
+            disabled
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ mt: 1.5, ...lockedFieldSx }}
+          />
+        ) : (
+          <Autocomplete
+            sx={{ mt: 1.5 }}
+            forcePopupIcon
+            open={clientSelectOpen}
+            onOpen={() => setClientSelectOpen(true)}
+            onClose={() => setClientSelectOpen(false)}
+            openOnFocus
+            popupIcon={<ArrowDropDownRoundedIcon />}
+            value={clients.find((client) => String(client.id) === String(form.clientId)) || null}
+            onChange={(_, selectedClient) => {
+              setForm((current) => ({
+                ...current,
+                clientId: selectedClient?.id || "",
+                clientCode: selectedClient?.client_code || "",
+              }));
+            }}
+            options={clients}
+            noOptionsText="No active clients found"
+            getOptionLabel={(option) => option?.client_code || ""}
+            filterOptions={(options, state) => {
+              const search = state.inputValue.trim().toLowerCase();
+              return options
+                .filter((client) => {
+                  const clientName = String(client.name || "").toLowerCase();
+                  const clientCode = String(client.client_code || "").toLowerCase();
+                  return !search || clientName.includes(search) || clientCode.includes(search);
+                })
+                .sort((first, second) => first.name.localeCompare(second.name))
+                .slice(0, 10);
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Client Code"
+                placeholder="Select or type client code"
+                fullWidth
+                slotProps={{
+                  ...params.slotProps,
+                  inputLabel: {
+                    ...params.slotProps?.inputLabel,
+                    shrink: true,
+                  },
+                }}
+                sx={{
+                  ...dialogFieldSx,
+                  "& .MuiOutlinedInput-root": {
+                    height: 54,
+                    minHeight: 54,
+                    py: "0 !important",
+                  },
+                  "& .MuiAutocomplete-input": {
+                    py: "0 !important",
+                  },
+                  "& .MuiAutocomplete-endAdornment": {
+                    right: 9,
+                  },
+                  "& .MuiAutocomplete-popupIndicator": {
+                    color: "#6b7280",
+                    display: "inline-flex",
+                    visibility: "visible",
+                  },
+                }}
+              />
+            )}
+          />
+        )}
         <TextField
           label="Date Received"
           type="date"
           value={form.dateReceived}
           onChange={handleChange("dateReceived")}
+          disabled={isEditMode}
           slotProps={{ inputLabel: { shrink: true } }}
           fullWidth
-          sx={{ mt: 1.5 }}
+          sx={{ mt: 1.5, ...(isEditMode ? lockedFieldSx : dialogFieldSx) }}
         />
         <TextField
           select
           label="Package Style"
           value={form.packageStyle}
           onChange={handleChange("packageStyle")}
+          disabled={isEditMode}
           fullWidth
+          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
         >
           {packageStyles.map((style) => (
             <MenuItem key={style} value={style}>
@@ -803,14 +885,18 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
           label="Model"
           value={form.model}
           onChange={handleChange("model")}
+          disabled={isEditMode}
           fullWidth
+          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
         />
         <TextField
           select
           label="With Adapter"
           value={form.withAdapter}
           onChange={handleChange("withAdapter")}
+          disabled={isEditMode}
           fullWidth
+          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
         >
           {adapterOptions.map((option) => (
             <MenuItem key={option} value={option}>
@@ -822,7 +908,9 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
           label="Serial Number"
           value={form.serialNumber}
           onChange={handleChange("serialNumber")}
+          disabled={isEditMode}
           fullWidth
+          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
         />
         <TextField
           select
@@ -830,6 +918,7 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
           value={form.statusId}
           onChange={handleChange("statusId")}
           fullWidth
+          sx={dialogFieldSx}
         >
           {statuses.map((status) => (
             <MenuItem key={status.id} value={status.id}>
@@ -842,6 +931,7 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
           value={form.repairBy}
           onChange={handleChange("repairBy")}
           fullWidth
+          sx={dialogFieldSx}
         />
         <TextField
           label="Test By"
@@ -849,12 +939,14 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
           onChange={handleChange("testBy")}
           fullWidth
           align="center"
+          sx={dialogFieldSx}
         />
         <TextField
           label="Senior Test By"
           value={form.seniorTestBy}
           onChange={handleChange("seniorTestBy")}
           fullWidth
+          sx={dialogFieldSx}
         />
         <TextField
           label="Remarks"
@@ -864,6 +956,7 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
           rows={3}
           fullWidth
           align="center"
+          sx={dialogFieldSx}
         />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>

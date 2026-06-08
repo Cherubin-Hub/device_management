@@ -23,8 +23,8 @@ import {
   Tab,
 } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
+import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../src/lib/supabase.js";
@@ -208,8 +208,7 @@ export default function ClientStatusPage() {
       component="main"
       sx={{
         minHeight: "100svh",
-        px: { xs: 2, md: 4 },
-        py: { xs: 2.5, md: 4 },
+        p: { xs: 2, md: 3 },
         textAlign: "left",
       }}
     >
@@ -217,8 +216,8 @@ export default function ClientStatusPage() {
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", md: "center" }}
-        spacing={2}
-        sx={{ mb: 3 }}
+        spacing={1.5}
+        sx={{ mb: 2 }}
       >
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Box
@@ -228,18 +227,18 @@ export default function ClientStatusPage() {
               borderRadius: 1.5,
               color: "#6b21a8",
               display: "flex",
-              height: 44,
+              height: 38,
               justifyContent: "center",
-              width: 44,
+              width: 38,
             }}
           >
-            <SettingsRoundedIcon />
+            <SettingsRoundedIcon fontSize="small" />
           </Box>
           <Box>
-            <Typography variant="h4" component="h1" fontWeight={800}>
+            <Typography variant="h5" component="h1" fontWeight={900}>
               Configurations
             </Typography>
-            <Typography variant="body1" color="text.secondary" sx={{ mt: 0.75 }}>
+            <Typography variant="caption" color="text.secondary">
               Manage clients and statuses. Enable or disable them as needed.
             </Typography>
           </Box>
@@ -247,28 +246,13 @@ export default function ClientStatusPage() {
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button
+            size="small"
             variant="contained"
             startIcon={<AddRoundedIcon />}
             onClick={() => setDialogMode("new")}
+            sx={{ textTransform: "none", fontWeight: 600 }}
           >
             New {itemType === "client" ? "Client" : "Status"}
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<EditRoundedIcon />}
-            disabled={!selectedItem}
-            onClick={() => setDialogMode("edit")}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteRoundedIcon />}
-            disabled={!selectedItem}
-            onClick={() => handleDeleteOption(itemType, selectedId)}
-          >
-            Delete
           </Button>
         </Stack>
       </Stack>
@@ -291,6 +275,16 @@ export default function ClientStatusPage() {
       <Paper elevation={0} sx={{ border: "1px solid #dde5ef", borderRadius: 2 }}>
         <Box sx={{ borderBottom: "1px solid #dde5ef" }}>
           <Tabs
+            sx={{
+              minHeight: 40,
+              "& .MuiTab-root": {
+                fontSize: 11,
+                fontWeight: 700,
+                minHeight: 40,
+                py: 0.75,
+                textTransform: "uppercase",
+              },
+            }}
             value={tabValue}
             onChange={(_, newValue) => {
               setTabValue(newValue);
@@ -304,12 +298,35 @@ export default function ClientStatusPage() {
           </Tabs>
         </Box>
         <TableContainer sx={{ overflowX: "auto" }}>
-          <Table sx={{ minWidth: 900 }} size="small">
+          <Table
+            sx={{
+              minWidth: 900,
+              "& th": {
+                bgcolor: "#d9d9d9",
+                fontSize: 11,
+                fontWeight: 900,
+                lineHeight: 1.2,
+                px: 0.5,
+                py: 0.85,
+                textAlign: "center",
+              },
+              "& td": {
+                fontSize: 11,
+                lineHeight: 1.25,
+                px: 0.5,
+                py: 0.6,
+              },
+              "& td *": {
+                fontSize: "11px !important",
+              },
+              "& td, & th": { borderColor: "#dddddd" },
+            }}
+            size="small"
+          >
             <TableHead>
               <TableRow>
-                <TableCell width={64} align="center">No.</TableCell>
                 {itemType === "client" ? <TableCell width={140}>Client Code</TableCell> : null}
-                <TableCell>{itemType === "client" ? "Client Name" : "Status Name"}</TableCell>
+                <TableCell align="center">{itemType === "client" ? "Client Name" : "Status Name"}</TableCell>
                 {itemType === "status" ? <TableCell align="center">Color</TableCell> : null}
                 <TableCell align="center">Status</TableCell>
                 <TableCell width={120} align="center">Enabled</TableCell>
@@ -320,7 +337,7 @@ export default function ClientStatusPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={itemType === "status" ? 6 : 6}
+                    colSpan={5}
                     align="center"
                     sx={{ py: 4 }}
                   >
@@ -331,7 +348,7 @@ export default function ClientStatusPage() {
               {!isLoading && currentItems.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={itemType === "status" ? 6 : 6}
+                    colSpan={5}
                     align="center"
                     sx={{ py: 4 }}
                   >
@@ -339,7 +356,7 @@ export default function ClientStatusPage() {
                   </TableCell>
                 </TableRow>
               ) : null}
-              {currentItems.map((item, index) => {
+              {currentItems.map((item) => {
                 const selected = item.id === selectedId;
                 return (
                   <TableRow
@@ -352,33 +369,42 @@ export default function ClientStatusPage() {
                       "& th": { fontWeight: 800 },
                     }}
                   >
-                    <TableCell align="center" component="th" scope="row">
-                      {index + 1}
-                    </TableCell>
                     {itemType === "client" ? (
-                      <TableCell>
-                        <Typography fontWeight={800} variant="body2">
+                      <TableCell align="center">
+                        <Typography fontWeight={700}>
                           {item.client_code || "-"}
                         </Typography>
                       </TableCell>
                     ) : null}
-                    <TableCell>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {item.color ? (
-                          <Box
-                            sx={{
-                              bgcolor: item.color,
-                              borderRadius: "50%",
-                              height: 12,
-                              width: 12,
-                              flexShrink: 0,
-                            }}
-                          />
-                        ) : null}
-                        <Typography fontWeight={700} variant="body2">
+                    <TableCell align="center" sx={{ textAlign: "center" }}>
+                      {itemType === "client" || itemType === "status" ? (
+                        <Typography component="span" fontWeight={700} sx={{ display: "block", textAlign: "center", width: "100%" }}>
                           {item.name}
                         </Typography>
-                      </Stack>
+                      ) : (
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          justifyContent="center"
+                          sx={{ width: "100%" }}
+                        >
+                          {item.color ? (
+                            <Box
+                              sx={{
+                                bgcolor: item.color,
+                                borderRadius: "50%",
+                                height: 12,
+                                width: 12,
+                                flexShrink: 0,
+                              }}
+                            />
+                          ) : null}
+                          <Typography fontWeight={700} sx={{ textAlign: "center" }}>
+                            {item.name}
+                          </Typography>
+                        </Stack>
+                      )}
                     </TableCell>
                     {itemType === "status" ? (
                       <TableCell align="center">
@@ -411,6 +437,7 @@ export default function ClientStatusPage() {
                         size="small"
                         color={item.is_active ? "success" : "default"}
                         variant={item.is_active ? "filled" : "outlined"}
+                        sx={{ fontWeight: 700, height: 22 }}
                       />
                     </TableCell>
                     <TableCell align="center">
@@ -420,22 +447,52 @@ export default function ClientStatusPage() {
                           onChange={() => handleToggleActive(itemType, item.id, item.is_active)}
                           onClick={(e) => e.stopPropagation()}
                           size="small"
+                          sx={{ transform: "scale(0.9)" }}
                         />
                       </Tooltip>
                     </TableCell>
-                    <TableCell align="center">
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedId(item.id);
-                            setDialogMode("edit");
-                          }}
-                        >
-                          <EditRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                    <TableCell align="center" sx={{ height: 34, p: 0, position: "relative", whiteSpace: "nowrap" }}>
+                      <Stack
+                        direction="row"
+                        spacing={0.5}
+                        alignItems="center"
+                        justifyContent="center"
+                        flexWrap="nowrap"
+                        sx={{
+                          left: "50%",
+                          position: "absolute",
+                          top: "50%",
+                          transform: "translate(-50%, -50%)",
+                        }}
+                      >
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            sx={{ p: 0.5 }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedId(item.id);
+                              setDialogMode("edit");
+                            }}
+                          >
+                            <EditRoundedIcon sx={{ fontSize: 17 }} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            sx={{ p: 0.5 }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedId(item.id);
+                              handleDeleteOption(itemType, item.id);
+                            }}
+                          >
+                            <DeleteRoundedIcon sx={{ fontSize: 17 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 );
