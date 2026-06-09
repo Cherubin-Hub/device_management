@@ -9,6 +9,7 @@ import {
 import DevicesRoundedIcon from "@mui/icons-material/DevicesRounded";
 
 const textFieldProps = {
+  // Shared TextField settings keep all device fields visually consistent.
   fullWidth: true,
   variant: "outlined",
   size: "small",
@@ -21,6 +22,7 @@ const textFieldProps = {
 
 export default function DeviceInfo({ clients = [], deviceInfo, onChange, onClientChange }) {
   const updateField = (field) => (event) => {
+    // Send field changes back to the parent page where the full report state lives.
     onChange(field, event.target.value);
   };
 
@@ -72,6 +74,7 @@ export default function DeviceInfo({ clients = [], deviceInfo, onChange, onClien
           label="Client Name"
           value={deviceInfo.clientId || ""}
           onChange={(event) => {
+            // Find the selected client so the parent can also populate the client code.
             const selectedClient = clients.find((client) => String(client.id) === String(event.target.value));
             onClientChange?.(selectedClient || null);
           }}

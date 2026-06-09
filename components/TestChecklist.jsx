@@ -20,6 +20,7 @@ import { tests } from "./testScripts";
 
 export default function TestChecklist({ results, onResultsChange }) {
   const handleStatusChange = (index, status) => {
+    // Toggle the selected status for one checklist row while keeping the other rows unchanged.
     onResultsChange((current) =>
       current.map((result, itemIndex) =>
         itemIndex === index
@@ -30,6 +31,7 @@ export default function TestChecklist({ results, onResultsChange }) {
   };
 
   const handleRemark = (index, value) => {
+    // Update only the remarks for the selected checklist row.
     onResultsChange((current) =>
       current.map((result, itemIndex) =>
         itemIndex === index ? { ...result, remarks: value } : result
@@ -37,8 +39,11 @@ export default function TestChecklist({ results, onResultsChange }) {
     );
   };
 
+  // Count all tests marked Yes for the summary chip.
   const passedCount = results.filter((result) => result.status === "Yes").length;
+  // Count rows with any selected status for the completion progress.
   const evaluatedCount = results.filter((result) => result.status).length;
+  // Convert evaluated rows into a percentage for the progress bar.
   const progress = Math.round((evaluatedCount / tests.length) * 100);
 
   return (

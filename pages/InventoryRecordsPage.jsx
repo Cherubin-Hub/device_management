@@ -26,6 +26,8 @@ import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import ClearRoundedIcon from "@mui/icons-material/ClearRounded";
 import { useEffect, useMemo, useState } from "react";
+import { archiveRecord } from "../src/lib/archiveRecord.js";
+import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { supabase } from "../src/lib/supabase.js";
 
 const blankDevice = {
@@ -53,9 +55,13 @@ const packageStyles = ["With Box", "Plastic", "Paper Bag"];
 const adapterOptions = ["Yes", "No"];
 
 export default function DeviceManagementPage() {
+  // Store inventory rows exactly as the UI table consumes them.
   const [items, setItems] = useState([]);
+  // Store active clients and statuses for dropdowns and display chips.
   const [clients, setClients] = useState([]);
   const [statuses, setStatuses] = useState([]);
+  // Store configured device types so the inventory dialog uses a controlled selection list.
+  const [deviceTypes, setDeviceTypes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [dialogMode, setDialogMode] = useState(null);
   const [error, setError] = useState("");
@@ -83,7 +89,8 @@ export default function DeviceManagementPage() {
 
     async function loadDevices() {
       setIsLoading(true);
-      const [devicesResult, statusesResult, clientsResult] = await Promise.all([
+      // Load inventory rows and lookup tables together so the table can render labels immediately.
+      const [devicesResult, statusesResult, clientsResult, deviceTypesResult] = await Promise.all([
         supabase
           .from("device_inventory_items")
           .select(`
@@ -120,14 +127,19 @@ export default function DeviceManagementPage() {
           .select("id, name, client_code, is_active")
           .eq("is_active", true)
           .order("name", { ascending: true }),
+        supabase
+          .from("device_types")
+          .select("id, name, is_active")
+          .eq("is_active", true)
+          .order("name", { ascending: true }),
       ]);
 
       if (ignore) {
         return;
       }
 
-      if (devicesResult.error || statusesResult.error || clientsResult.error) {
-        setError(devicesResult.error?.message || statusesResult.error?.message || clientsResult.error?.message);
+      if (devicesResult.error || statusesResult.error || clientsResult.error || deviceTypesResult.error) {
+        setError(devicesResult.error?.message || statusesResult.error?.message || clientsResult.error?.message || deviceTypesResult.error?.message);
         setIsLoading(false);
         return;
       }
@@ -136,6 +148,7 @@ export default function DeviceManagementPage() {
       setItems(mappedItems);
       setStatuses(statusesResult.data || []);
       setClients(clientsResult.data || []);
+      setDeviceTypes(deviceTypesResult.data || []);
       setSelectedId(mappedItems[0]?.id || null);
       setIsLoading(false);
     }
@@ -149,6 +162,7 @@ export default function DeviceManagementPage() {
 
   const displayedItems = useMemo(
     () =>
+      // Apply date filters only after the user clicks Apply, matching the existing workflow.
       items.filter((item) => {
         const receivedOk = isInsideRange(
           item.dateReceived,
@@ -166,9 +180,11 @@ export default function DeviceManagementPage() {
   );
 
   const handleSave = async (form) => {
+    // Convert UI field names into database column names before saving.
     const payload = mapDeviceToDb(form);
 
     if (dialogMode === "new") {
+      // Insert newly encoded inventory record into Supabase.
       const { data, error: insertError } = await supabase
         .from("device_inventory_items")
         .insert(payload)
@@ -181,12 +197,22 @@ export default function DeviceManagementPage() {
       }
 
       const nextItem = mapDeviceFromDb(data);
+      await logAuditEvent({
+        action: "CREATE",
+        afterData: payload,
+        entityId: nextItem.id,
+        entityTable: "device_inventory_items",
+        module: "Inventory Records",
+        recordLabel: getDeviceLabel(nextItem),
+        summary: `Created inventory record for ${getDeviceLabel(nextItem)}.`,
+      });
       setItems((current) => [nextItem, ...current]);
       setSelectedId(nextItem.id);
       setDialogMode(null);
       return;
     }
 
+    // Update the selected inventory record while preserving its row identity.
     const { data, error: updateError } = await supabase
       .from("device_inventory_items")
       .update({ ...payload, updated_at: new Date().toISOString() })
@@ -202,8 +228,19 @@ export default function DeviceManagementPage() {
     const updatedItem = mapDeviceFromDb(data);
     const oldStatus = selectedItem?.statusName;
     const newStatus = updatedItem.statusName;
+    await logAuditEvent({
+      action: "UPDATE",
+      afterData: payload,
+      beforeData: selectedItem ? mapDeviceToDb(selectedItem) : null,
+      entityId: updatedItem.id,
+      entityTable: "device_inventory_items",
+      module: "Inventory Records",
+      recordLabel: getDeviceLabel(updatedItem),
+      summary: `Updated inventory record for ${getDeviceLabel(updatedItem)}.`,
+    });
 
     if (isClosedStatus(oldStatus) && !isClosedStatus(newStatus)) {
+      // Moving from a closed status back to an active status returns the record to Ongoing Testing.
       const transferred = await transferBackToOngoingTesting(updatedItem);
       if (transferred) {
         const { error: deleteError } = await supabase
@@ -232,6 +269,19 @@ export default function DeviceManagementPage() {
       return;
     }
 
+    // Archive first so deleted inventory records can be restored by the user later.
+    const { error: archiveError } = await archiveRecord({
+      recordData: mapDeviceToDb(selectedItem),
+      recordLabel: selectedItem.snNumber || selectedItem.cstNumber || selectedItem.ticketNumber || selectedItem.company,
+      recordType: "Inventory Record",
+      sourceTable: "device_inventory_items",
+    });
+
+    if (archiveError) {
+      setError(`Failed to archive record: ${archiveError.message}`);
+      return;
+    }
+
     const { error: deleteError } = await supabase
       .from("device_inventory_items")
       .delete()
@@ -242,6 +292,15 @@ export default function DeviceManagementPage() {
       return;
     }
 
+    await logAuditEvent({
+      action: "ARCHIVE",
+      beforeData: mapDeviceToDb(selectedItem),
+      entityId: selectedItem.id,
+      entityTable: "device_inventory_items",
+      module: "Inventory Records",
+      recordLabel: getDeviceLabel(selectedItem),
+      summary: `Archived inventory record for ${getDeviceLabel(selectedItem)}.`,
+    });
     setItems((current) => current.filter((item) => item.id !== selectedId));
     setSelectedId(items.find((item) => item.id !== selectedId)?.id || null);
   };
@@ -256,6 +315,7 @@ export default function DeviceManagementPage() {
 
   const transferBackToOngoingTesting = async (inventoryItem) => {
     try {
+      // Build the ongoing testing payload from the inventory fields that also exist in testing.
       const ongoingPayload = {
         client_id: inventoryItem.clientId || null,
         date_received: inventoryItem.dateReceived,
@@ -269,15 +329,28 @@ export default function DeviceManagementPage() {
         source_inventory_id: inventoryItem.id,
       };
 
-      const { error: insertError } = await supabase
+      const { data: insertedOngoing, error: insertError } = await supabase
         .from("ongoing_testing_items")
-        .insert(ongoingPayload);
+        .insert(ongoingPayload)
+        .select()
+        .single();
 
       if (insertError) {
         setError(`Failed to transfer back to ongoing testing: ${insertError.message}`);
         return false;
       }
 
+      await logAuditEvent({
+        action: "TRANSFER_TO_ONGOING_TESTING",
+        afterData: ongoingPayload,
+        beforeData: mapDeviceToDb(inventoryItem),
+        entityId: insertedOngoing?.id || inventoryItem.id,
+        entityTable: "ongoing_testing_items",
+        metadata: { sourceInventoryId: inventoryItem.id },
+        module: "Device Inventory",
+        recordLabel: getDeviceLabel(inventoryItem),
+        summary: `Moved ${getDeviceLabel(inventoryItem)} from Inventory Records back to Ongoing Testing.`,
+      });
       return true;
     } catch (err) {
       setError(`Transfer error: ${err.message}`);
@@ -491,7 +564,8 @@ export default function DeviceManagementPage() {
         <DeviceDialog
           key={`${dialogMode}-${selectedId || "new"}`}
           clients={clients}
-          initialValue={dialogMode === "edit" ? selectedItem : { ...blankDevice, statusId: statuses[0]?.id || "" }}
+          deviceTypes={deviceTypes}
+          initialValue={dialogMode === "edit" ? selectedItem : { ...blankDevice, statusId: "" }}
           onClose={() => setDialogMode(null)}
           onSave={handleSave}
           open
@@ -503,9 +577,12 @@ export default function DeviceManagementPage() {
   );
 }
 
-function DeviceDialog({ clients, initialValue, onClose, onSave, open, statuses, title }) {
+function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, open, statuses, title }) {
+  // Store the dialog form separately so typing does not update the table until Save is clicked.
   const [form, setForm] = useState(initialValue || blankDevice);
+  // Update one form field while preserving every other field value.
   const updateField = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
+  // Select client by client code and use the linked client name as the read-only company value.
   const updateClient = (event) => {
     const clientId = event.target.value;
     const selectedClient = clients.find((client) => String(client.id) === String(clientId));
@@ -516,30 +593,45 @@ function DeviceDialog({ clients, initialValue, onClose, onSave, open, statuses, 
       clientCode: selectedClient?.client_code || "",
     }));
   };
-  const canSave = form.snNumber.trim() || form.cstNumber.trim() || form.ticketNumber.trim();
+  // Require client code, serial number, and device type before allowing a new inventory record to save.
+  const canSave = Boolean(form.clientId && form.clientCode && form.snNumber.trim() && form.deviceType.trim());
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle fontWeight={900}>{title}</DialogTitle>
       <DialogContent>
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" }, pt: 1 }}>
-          <TextField label="Company" value={form.company} onChange={updateField("company")} />
-          <TextField select label="Client" value={form.clientId || ""} onChange={updateClient}>
-            <MenuItem value="">Select Client</MenuItem>
+          <TextField
+            label="Company"
+            value={form.company}
+            InputProps={{ readOnly: true }}
+            sx={{
+              "& .MuiInputBase-root": { bgcolor: "#f3f4f6" },
+              "& .MuiInputBase-input": { color: "#6b7280" },
+            }}
+          />
+          <TextField select required label="Client Code" value={form.clientId || ""} onChange={updateClient}>
+            <MenuItem value="">Select Client Code</MenuItem>
             {clients.map((client) => (
               <MenuItem key={client.id} value={client.id}>
-                {client.name}
+                {client.client_code}
               </MenuItem>
             ))}
           </TextField>
-          <TextField label="Client Code" value={form.clientCode || ""} InputProps={{ readOnly: true }} />
           <TextField label="Raised by" value={form.raisedBy} onChange={updateField("raisedBy")} />
           <TextField label="Date Received" type="date" value={form.dateReceived} onChange={updateField("dateReceived")} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField select label="Package Style" value={form.packageStyle} onChange={updateField("packageStyle")}>{packageStyles.map((style) => <MenuItem key={style} value={style}>{style}</MenuItem>)}</TextField>
           <TextField label="CST Number" value={form.cstNumber} onChange={updateField("cstNumber")} />
           <TextField label="Ticket Number" value={form.ticketNumber} onChange={updateField("ticketNumber")} />
-          <TextField label="SN Number" value={form.snNumber} onChange={updateField("snNumber")} />
-          <TextField label="Device Type" value={form.deviceType} onChange={updateField("deviceType")} />
+          <TextField required label="SN Number" value={form.snNumber} onChange={updateField("snNumber")} />
+          <TextField required select label="Device Type" value={form.deviceType} onChange={updateField("deviceType")}>
+            <MenuItem value="">Select Device Type</MenuItem>
+            {deviceTypes.map((deviceType) => (
+              <MenuItem key={deviceType.id} value={deviceType.name}>
+                {deviceType.name}
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField select label="With Adapter" value={form.withAdapter} onChange={updateField("withAdapter")}>{adapterOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}</TextField>
           <TextField label="Start Repairing Support" type="date" value={form.startRepairingSupport} onChange={updateField("startRepairingSupport")} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField label="End Date Support" type="date" value={form.endDateSupport} onChange={updateField("endDateSupport")} slotProps={{ inputLabel: { shrink: true } }} />
@@ -575,6 +667,7 @@ const isInsideRange = (value, from, to) => {
 const formatDisplayDate = (value) => value ? new Date(`${value}T00:00:00`).toLocaleDateString() : "-";
 
 const mapDeviceFromDb = (item) => ({
+  // Normalize Supabase row shape into the field names used by React state and forms.
   id: item.id,
   company: item.company || "",
   clientId: item.client_id || "",
@@ -601,6 +694,7 @@ const mapDeviceFromDb = (item) => ({
 });
 
 const mapDeviceToDb = (item) => ({
+  // Normalize React form state back into Supabase column names.
   company: item.company || null,
   client_id: item.clientId || null,
   raised_by: item.raisedBy || null,
@@ -620,6 +714,9 @@ const mapDeviceToDb = (item) => ({
   give_to: item.giveTo || null,
   remarks: item.remarks || null,
 });
+
+const getDeviceLabel = (item) =>
+  item?.snNumber || item?.cstNumber || item?.ticketNumber || item?.clientCode || item?.company || "Untitled record";
 
 const exportExcel = (items, statuses) => {
   const headers = ["Company", "Client Code", "Raised by", "Date Received", "Package Style", "CST Number", "Ticket Number", "SN Number", "Device Type", "With Adapter", "Start Repairing Support", "End Date Support", "Start QA", "End Date QA", "Status", "Date Delivered", "Give to", "Remarks"];

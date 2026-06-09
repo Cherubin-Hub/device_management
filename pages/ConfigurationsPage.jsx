@@ -27,11 +27,17 @@ import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { useEffect, useMemo, useState } from "react";
+import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { supabase } from "../src/lib/supabase.js";
 
 export default function ClientStatusPage() {
+  // Store configurable clients used by inventory and testing client-code selectors.
   const [clients, setClients] = useState([]);
+  // Store configurable statuses used by inventory and testing status selectors.
   const [statuses, setStatuses] = useState([]);
+  // Store configurable device types used by the inventory Device Type selector.
+  const [deviceTypes, setDeviceTypes] = useState([]);
+  // Switch between Clients, Status, and Device Types without changing pages.
   const [tabValue, setTabValue] = useState(0);
   const [selectedId, setSelectedId] = useState(null);
   const [dialogMode, setDialogMode] = useState(null);
@@ -49,7 +55,8 @@ export default function ClientStatusPage() {
       }
 
       setIsLoading(true);
-      const [clientsResult, statusesResult] = await Promise.all([
+      // Load all configuration lists together because the page can switch tabs instantly.
+      const [clientsResult, statusesResult, deviceTypesResult] = await Promise.all([
         supabase
           .from("clients")
           .select("id, name, client_code, is_active")
@@ -58,16 +65,21 @@ export default function ClientStatusPage() {
           .from("statuses")
           .select("id, name, color, is_active")
           .order("name", { ascending: true }),
+        supabase
+          .from("device_types")
+          .select("id, name, is_active")
+          .order("name", { ascending: true }),
       ]);
 
       if (ignore) {
         return;
       }
 
-      if (clientsResult.error || statusesResult.error) {
+      if (clientsResult.error || statusesResult.error || deviceTypesResult.error) {
         setError(
           clientsResult.error?.message ||
             statusesResult.error?.message ||
+            deviceTypesResult.error?.message ||
             "Failed to load data"
         );
         setIsLoading(false);
@@ -76,6 +88,7 @@ export default function ClientStatusPage() {
 
       setClients(clientsResult.data || []);
       setStatuses(statusesResult.data || []);
+      setDeviceTypes(deviceTypesResult.data || []);
       setSelectedId((current) => current || clientsResult.data?.[0]?.id || null);
       setIsLoading(false);
     }
@@ -88,7 +101,9 @@ export default function ClientStatusPage() {
   }, []);
 
   const handleToggleActive = async (type, id, currentStatus) => {
-    const table = type === "client" ? "clients" : "statuses";
+    const table = getConfigTable(type);
+    const sourceItem = getConfigItems(type, { clients, statuses, deviceTypes }).find((item) => item.id === id);
+    // Toggle active state used by dropdowns without deleting the configuration record.
     const { error: updateError } = await supabase
       .from(table)
       .update({ is_active: !currentStatus })
@@ -105,13 +120,31 @@ export default function ClientStatusPage() {
           item.id === id ? { ...item, is_active: !currentStatus } : item
         )
       );
-    } else {
+    } else if (type === "status") {
       setStatuses((current) =>
         current.map((item) =>
           item.id === id ? { ...item, is_active: !currentStatus } : item
         )
       );
+    } else {
+      setDeviceTypes((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, is_active: !currentStatus } : item
+        )
+      );
     }
+
+    // Record configuration enable/disable movement for audit reporting.
+    await logAuditEvent({
+      action: "UPDATE",
+      afterData: { ...sourceItem, is_active: !currentStatus },
+      beforeData: sourceItem || null,
+      entityId: id,
+      entityTable: table,
+      module: "Configurations",
+      recordLabel: getConfigLabel(type, sourceItem),
+      summary: `${!currentStatus ? "Enabled" : "Disabled"} ${getConfigTypeLabel(type)} ${getConfigLabel(type, sourceItem)}.`,
+    });
   };
 
   const handleCreateOption = async (type, value) => {
@@ -121,7 +154,8 @@ export default function ClientStatusPage() {
       ...(type === "status" ? { color: value.color || "#4b5563" } : {}),
       is_active: true,
     };
-    const table = type === "client" ? "clients" : "statuses";
+    const table = getConfigTable(type);
+    // Insert a new dropdown configuration option used by inventory/testing forms.
     const { data, error: insertError } = await supabase
       .from(table)
       .insert(payload)
@@ -136,20 +170,35 @@ export default function ClientStatusPage() {
     if (type === "client") {
       setClients((current) => [...current, data].sort(sortByName));
       setSelectedId(data.id);
-    } else {
+    } else if (type === "status") {
       setStatuses((current) => [...current, data].sort(sortByName));
       setSelectedId(data.id);
+    } else {
+      setDeviceTypes((current) => [...current, data].sort(sortByName));
+      setSelectedId(data.id);
     }
+
+    // Record newly created configuration values so setup changes are traceable.
+    await logAuditEvent({
+      action: "CREATE",
+      afterData: data,
+      entityId: data.id,
+      entityTable: table,
+      module: "Configurations",
+      recordLabel: getConfigLabel(type, data),
+      summary: `Created ${getConfigTypeLabel(type)} ${getConfigLabel(type, data)}.`,
+    });
     setDialogMode(null);
   };
 
   const handleUpdateOption = async (type, id, value) => {
-    const table = type === "client" ? "clients" : "statuses";
+    const table = getConfigTable(type);
     const payload = {
       name: value.name.trim(),
       ...(type === "client" ? { client_code: value.clientCode.trim() } : {}),
       ...(type === "status" ? { color: value.color || "#4b5563" } : {}),
     };
+    // Update an existing configuration option while preserving its database identifier.
     const { data, error: updateError } = await supabase
       .from(table)
       .update(payload)
@@ -162,20 +211,39 @@ export default function ClientStatusPage() {
       return;
     }
 
+    const previousItem = getConfigItems(type, { clients, statuses, deviceTypes }).find((item) => item.id === id);
     if (type === "client") {
       setClients((current) =>
         current.map((item) => (item.id === id ? data : item)).sort(sortByName)
       );
-    } else {
+    } else if (type === "status") {
       setStatuses((current) =>
         current.map((item) => (item.id === id ? data : item)).sort(sortByName)
       );
+    } else {
+      setDeviceTypes((current) =>
+        current.map((item) => (item.id === id ? data : item)).sort(sortByName)
+      );
     }
+
+    // Record before/after snapshots for configuration updates.
+    await logAuditEvent({
+      action: "UPDATE",
+      afterData: data,
+      beforeData: previousItem || null,
+      entityId: id,
+      entityTable: table,
+      module: "Configurations",
+      recordLabel: getConfigLabel(type, data),
+      summary: `Updated ${getConfigTypeLabel(type)} ${getConfigLabel(type, data)}.`,
+    });
     setDialogMode(null);
   };
 
   const handleDeleteOption = async (type, id) => {
-    const table = type === "client" ? "clients" : "statuses";
+    const table = getConfigTable(type);
+    const itemToDelete = getConfigItems(type, { clients, statuses, deviceTypes }).find((item) => item.id === id);
+    // Delete configuration values only when the user explicitly chooses the row action.
     const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
 
     if (deleteError) {
@@ -189,15 +257,36 @@ export default function ClientStatusPage() {
         current === id ? clients.find((item) => item.id !== id)?.id || null : current
       );
     } else {
-      setStatuses((current) => current.filter((item) => item.id !== id));
-      setSelectedId((current) =>
-        current === id ? statuses.find((item) => item.id !== id)?.id || null : current
-      );
+      if (type === "status") {
+        setStatuses((current) => current.filter((item) => item.id !== id));
+        setSelectedId((current) =>
+          current === id ? statuses.find((item) => item.id !== id)?.id || null : current
+        );
+      } else {
+        setDeviceTypes((current) => current.filter((item) => item.id !== id));
+        setSelectedId((current) =>
+          current === id ? deviceTypes.find((item) => item.id !== id)?.id || null : current
+        );
+      }
     }
+
+    // Record deleted configuration values for audit visibility.
+    await logAuditEvent({
+      action: "DELETE",
+      beforeData: itemToDelete || null,
+      entityId: id,
+      entityTable: table,
+      module: "Configurations",
+      recordLabel: getConfigLabel(type, itemToDelete),
+      summary: `Deleted ${getConfigTypeLabel(type)} ${getConfigLabel(type, itemToDelete)}.`,
+    });
   };
 
-  const currentItems = tabValue === 0 ? clients : statuses;
-  const itemType = tabValue === 0 ? "client" : "status";
+  const currentItems = tabValue === 0 ? clients : tabValue === 1 ? statuses : deviceTypes;
+  // Determine which table and dialog fields should be used for the active tab.
+  const itemType = tabValue === 0 ? "client" : tabValue === 1 ? "status" : "deviceType";
+  // Keep loading and empty states aligned to the active tab's column count.
+  const tableColumnCount = itemType === "deviceType" ? 4 : 5;
   const selectedItem = useMemo(
     () => currentItems.find((item) => item.id === selectedId) || null,
     [currentItems, selectedId]
@@ -252,7 +341,7 @@ export default function ClientStatusPage() {
             onClick={() => setDialogMode("new")}
             sx={{ textTransform: "none", fontWeight: 600 }}
           >
-            New {itemType === "client" ? "Client" : "Status"}
+            New {getConfigTypeTitle(itemType)}
           </Button>
         </Stack>
       </Stack>
@@ -295,6 +384,7 @@ export default function ClientStatusPage() {
           >
             <Tab align="center" label="Clients" />
             <Tab align="center" label="Status" />
+            <Tab align="center" label="Device Types" />
           </Tabs>
         </Box>
         <TableContainer sx={{ overflowX: "auto" }}>
@@ -326,7 +416,7 @@ export default function ClientStatusPage() {
             <TableHead>
               <TableRow>
                 {itemType === "client" ? <TableCell width={140}>Client Code</TableCell> : null}
-                <TableCell align="center">{itemType === "client" ? "Client Name" : "Status Name"}</TableCell>
+                <TableCell align="center">{getConfigNameColumn(itemType)}</TableCell>
                 {itemType === "status" ? <TableCell align="center">Color</TableCell> : null}
                 <TableCell align="center">Status</TableCell>
                 <TableCell width={120} align="center">Enabled</TableCell>
@@ -337,7 +427,7 @@ export default function ClientStatusPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={tableColumnCount}
                     align="center"
                     sx={{ py: 4 }}
                   >
@@ -348,11 +438,11 @@ export default function ClientStatusPage() {
               {!isLoading && currentItems.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={tableColumnCount}
                     align="center"
                     sx={{ py: 4 }}
                   >
-                    No {itemType === "client" ? "clients" : "statuses"} yet.
+                    No {getConfigTypeTitle(itemType).toLowerCase()} yet.
                   </TableCell>
                 </TableRow>
               ) : null}
@@ -377,34 +467,18 @@ export default function ClientStatusPage() {
                       </TableCell>
                     ) : null}
                     <TableCell align="center" sx={{ textAlign: "center" }}>
-                      {itemType === "client" || itemType === "status" ? (
-                        <Typography component="span" fontWeight={700} sx={{ display: "block", textAlign: "center", width: "100%" }}>
-                          {item.name}
-                        </Typography>
-                      ) : (
-                        <Stack
-                          direction="row"
-                          spacing={1}
-                          alignItems="center"
-                          justifyContent="center"
-                          sx={{ width: "100%" }}
-                        >
-                          {item.color ? (
-                            <Box
-                              sx={{
-                                bgcolor: item.color,
-                                borderRadius: "50%",
-                                height: 12,
-                                width: 12,
-                                flexShrink: 0,
-                              }}
-                            />
-                          ) : null}
-                          <Typography fontWeight={700} sx={{ textAlign: "center" }}>
-                            {item.name}
-                          </Typography>
-                        </Stack>
-                      )}
+                      <Typography
+                        component="span"
+                        fontWeight={700}
+                        sx={{
+                          // Keep Client Name, Status Name, and Device Type values centered under their headers.
+                          display: "block",
+                          textAlign: "center",
+                          width: "100%",
+                        }}
+                      >
+                        {item.name}
+                      </Typography>
                     </TableCell>
                     {itemType === "status" ? (
                       <TableCell align="center">
@@ -523,16 +597,60 @@ export default function ClientStatusPage() {
 
 const sortByName = (first, second) => first.name.localeCompare(second.name);
 
+const getConfigTable = (type) => {
+  // Map the active configuration tab to the Supabase table it manages.
+  if (type === "client") return "clients";
+  if (type === "status") return "statuses";
+  return "device_types";
+};
+
+const getConfigItems = (type, collections) => {
+  // Return the correct local state array for the active configuration tab.
+  if (type === "client") return collections.clients;
+  if (type === "status") return collections.statuses;
+  return collections.deviceTypes;
+};
+
+const getConfigLabel = (type, item) => {
+  // Build the readable label used in audit trail summaries.
+  if (!item) return "Untitled record";
+  if (type === "client") return item.client_code ? `${item.client_code} - ${item.name}` : item.name;
+  return item.name || "Untitled record";
+};
+
+const getConfigTypeLabel = (type) => {
+  // Build lowercase labels used inside audit trail sentences.
+  if (type === "client") return "client";
+  if (type === "status") return "status";
+  return "device type";
+};
+
+const getConfigTypeTitle = (type) => {
+  // Build title-case labels used by buttons, empty states, and dialogs.
+  if (type === "client") return "Client";
+  if (type === "status") return "Status";
+  return "Device Type";
+};
+
+const getConfigNameColumn = (type) => {
+  // Build the name column label based on the active configuration tab.
+  if (type === "client") return "Client Name";
+  if (type === "status") return "Status Name";
+  return "Device Type";
+};
+
 function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, onUpdate }) {
+  // Store dialog field values locally until the user clicks Save.
   const [form, setForm] = useState({
     name: initialValue?.name || "",
     clientCode: initialValue?.client_code || "",
     color: initialValue?.color || "#4b5563",
   });
 
-  const title = `${mode === "new" ? "New" : "Edit"} ${itemType === "client" ? "Client" : "Status"}`;
-  const canSave = form.name.trim() && (itemType === "status" || form.clientCode.trim());
+  const title = `${mode === "new" ? "New" : "Edit"} ${getConfigTypeTitle(itemType)}`;
+  const canSave = form.name.trim() && (itemType !== "client" || form.clientCode.trim());
   const handleSave = () => {
+    // Prevent save when required configuration fields are incomplete.
     if (!canSave) {
       return;
     }
@@ -549,7 +667,7 @@ function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, o
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
-            label={itemType === "client" ? "Client Name" : "Status Name"}
+            label={getConfigNameColumn(itemType)}
             required
             fullWidth
             value={form.name}

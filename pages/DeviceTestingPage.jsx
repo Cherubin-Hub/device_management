@@ -18,6 +18,7 @@ import { tests } from "../components/testScripts";
 import { supabase } from "../src/lib/supabase.js";
 
 const initialDeviceInfo = {
+  // Default empty values for the device information form.
   cstNumber: "",
   clientId: "",
   clientName: "",
@@ -32,6 +33,7 @@ const initialDeviceInfo = {
 };
 
 const initialApproval = {
+  // Default empty values for the approval/sign-off form.
   testedBy: "",
   checkedBySenior: "",
   checkedBySupervisor: "",
@@ -39,17 +41,22 @@ const initialApproval = {
 };
 
 export default function DeviceTestingPage() {
+  // Store all device information entered in the left panel.
   const [deviceInfo, setDeviceInfo] = useState(initialDeviceInfo);
+  // Store active clients loaded from Supabase for the client dropdown.
   const [clients, setClients] = useState([]);
+  // Create one result row for every test script in the checklist.
   const [testResults, setTestResults] = useState(
     tests.map(() => ({
       status: "",
       remarks: "",
     }))
   );
+  // Store approval names and comments entered in the right panel.
   const [approval, setApproval] = useState(initialApproval);
 
   const completedCount = useMemo(
+    // Count tests marked Yes so the PDF can show the pass summary.
     () => testResults.filter((result) => result.status === "Yes").length,
     [testResults]
   );
@@ -62,6 +69,7 @@ export default function DeviceTestingPage() {
         return;
       }
 
+      // Load active clients so the report can capture both client name and client code.
       const { data, error } = await supabase
         .from("clients")
         .select("id, name, client_code")
@@ -81,6 +89,7 @@ export default function DeviceTestingPage() {
   }, []);
 
   const handleDeviceInfoChange = (field, value) => {
+    // Update one device information field while keeping the rest of the form intact.
     setDeviceInfo((current) => ({
       ...current,
       [field]: value,
@@ -88,6 +97,7 @@ export default function DeviceTestingPage() {
   };
 
   const handleClientChange = (client) => {
+    // Store client id, display name, and code together when a client is selected.
     setDeviceInfo((current) => ({
       ...current,
       clientId: client?.id || "",
@@ -97,6 +107,7 @@ export default function DeviceTestingPage() {
   };
 
   const handleApprovalChange = (field, value) => {
+    // Update one approval field while keeping other sign-off values intact.
     setApproval((current) => ({
       ...current,
       [field]: value,
@@ -104,16 +115,20 @@ export default function DeviceTestingPage() {
   };
 
   const handleDownloadPdf = () => {
+    // Create a new PDF report using A4 portrait layout.
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const generatedAt = new Date().toLocaleString();
     const serialNumber = deviceInfo.deviceSerialNumber.trim();
+    // Use the device serial number as the PDF filename when available.
     const fileName = `${sanitizeFileName(serialNumber) || "device-testing-report"}.pdf`;
 
+    // Add PDF metadata so the generated file is easier to identify.
     doc.setProperties({
       title: `Device Testing Report - ${serialNumber || "Untitled"}`,
       subject: "Device testing report",
     });
 
+    // Render the PDF title and generation summary.
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.text("Device Testing Report", 14, 18);
@@ -124,6 +139,7 @@ export default function DeviceTestingPage() {
     doc.text(`Generated: ${generatedAt}`, 14, 25);
     doc.text(`Status: ${completedCount}/${tests.length} tests passed`, 14, 31);
 
+    // Render device information as the first table in the PDF.
     autoTable(doc, {
       startY: 39,
       head: [["Device Information", ""]],
@@ -148,6 +164,7 @@ export default function DeviceTestingPage() {
       },
     });
 
+    // Render all checklist rows so the PDF captures every encoded test result.
     autoTable(doc, {
       startY: doc.lastAutoTable.finalY + 8,
       head: [["#", "Test Script", "Status", "Remarks"]],
@@ -168,6 +185,7 @@ export default function DeviceTestingPage() {
       },
     });
 
+    // Render approval/sign-off information as the final report section.
     autoTable(doc, {
       startY: doc.lastAutoTable.finalY + 8,
       head: [["Approval", ""]],
@@ -187,6 +205,7 @@ export default function DeviceTestingPage() {
     });
 
     const pageCount = doc.getNumberOfPages();
+    // Add page numbers after tables are created because the final page count is known.
     for (let page = 1; page <= pageCount; page += 1) {
       doc.setPage(page);
       doc.setFontSize(8);
@@ -194,6 +213,7 @@ export default function DeviceTestingPage() {
       doc.text(`Page ${page} of ${pageCount}`, 180, 290);
     }
 
+    // Download the PDF directly in the browser.
     doc.save(fileName);
   };
 
@@ -300,6 +320,7 @@ export default function DeviceTestingPage() {
 }
 
 const panelSx = {
+  // Shared panel style keeps the three report sections visually consistent.
   border: "1px solid #dde5ef",
   borderRadius: 2,
   boxShadow: "0 16px 40px rgba(21, 34, 50, 0.08)",
@@ -307,11 +328,13 @@ const panelSx = {
 };
 
 const valueOrBlank = (value) => {
+  // PDF tables use a dash when a field is empty so blank values remain visible.
   const text = String(value || "").trim();
   return text || "-";
 };
 
 const sanitizeFileName = (value) =>
+  // Remove characters that Windows and browsers do not allow in downloaded filenames.
   value
     .trim()
     .split("")

@@ -31,6 +31,8 @@ import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
 import ArrowDropDownRoundedIcon from "@mui/icons-material/ArrowDropDownRounded";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { archiveRecord } from "../src/lib/archiveRecord.js";
+import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { supabase } from "../src/lib/supabase.js";
 
 const blankTest = {
@@ -53,7 +55,9 @@ const packageStyles = ["With Box", "Plastic", "Paper Bag"];
 const adapterOptions = ["Yes", "No"];
 
 export default function OngoingTestingPage() {
+  // Store testing rows in the same shape expected by the table and dialog.
   const [items, setItems] = useState([]);
+  // Store lookup records used by client and status selectors.
   const [clients, setClients] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -80,6 +84,7 @@ export default function OngoingTestingPage() {
 
     async function loadTests() {
       setIsLoading(true);
+      // Load testing records with joined client/status labels to avoid separate per-row requests.
       const [testsResult, statusesResult, clientsResult] = await Promise.all([
         supabase
           .from("ongoing_testing_items")
@@ -140,6 +145,7 @@ export default function OngoingTestingPage() {
 
   const displayedItems = useMemo(
     () =>
+      // Apply the saved date filter state so typing dates does not filter until Apply is clicked.
       items.filter((item) => {
         const receivedOk = isInsideRange(
           item.dateReceived,
@@ -152,9 +158,11 @@ export default function OngoingTestingPage() {
   );
 
   const handleSave = async (form) => {
+    // Convert dialog state into Supabase column names before insert/update.
     const payload = mapTestToDb(form);
 
     if (dialogMode === "new") {
+      // Create a testing record before deciding whether it should move to inventory.
       const { data, error: insertError } = await supabase
         .from("ongoing_testing_items")
         .insert(payload)
@@ -167,6 +175,15 @@ export default function OngoingTestingPage() {
       }
 
       const nextItem = mapTestFromDb(data);
+      await logAuditEvent({
+        action: "CREATE",
+        afterData: payload,
+        entityId: nextItem.id,
+        entityTable: "ongoing_testing_items",
+        module: "Ongoing Testing",
+        recordLabel: getTestLabel(nextItem),
+        summary: `Created ongoing testing record for ${getTestLabel(nextItem)}.`,
+      });
       if (isClosedStatus(nextItem.status?.name)) {
         await transferToInventory(nextItem);
         setDialogMode(null);
@@ -193,8 +210,19 @@ export default function OngoingTestingPage() {
 
     const updatedItem = mapTestFromDb(data);
     const newStatus = updatedItem.status?.name;
+    await logAuditEvent({
+      action: "UPDATE",
+      afterData: payload,
+      beforeData: selectedItem ? mapTestToDb(selectedItem) : null,
+      entityId: updatedItem.id,
+      entityTable: "ongoing_testing_items",
+      module: "Ongoing Testing",
+      recordLabel: getTestLabel(updatedItem),
+      summary: `Updated ongoing testing record for ${getTestLabel(updatedItem)}.`,
+    });
 
     if (isClosedStatus(newStatus)) {
+      // Closed statuses automatically move the record from Ongoing Testing to Inventory Records.
       const transferred = await transferToInventory(updatedItem);
       if (transferred) {
         setDialogMode(null);
@@ -208,7 +236,7 @@ export default function OngoingTestingPage() {
 
   const transferToInventory = async (testItem) => {
     try {
-      // Create new device inventory item from test item
+      // Create a device inventory item using only fields that exist in inventory records.
       const inventoryPayload = {
         company: testItem.clientName || testItem.repairBy || "",
         client_id: testItem.clientId || null,
@@ -225,7 +253,7 @@ export default function OngoingTestingPage() {
         give_to: null,
       };
 
-      const { error: insertError } = await supabase
+      const { data: insertedInventory, error: insertError } = await supabase
         .from("device_inventory_items")
         .insert(inventoryPayload)
         .select()
@@ -236,7 +264,19 @@ export default function OngoingTestingPage() {
         return false;
       }
 
-      // Delete from ongoing testing
+      await logAuditEvent({
+        action: "TRANSFER_TO_INVENTORY",
+        afterData: inventoryPayload,
+        beforeData: mapTestToDb(testItem),
+        entityId: insertedInventory?.id || testItem.id,
+        entityTable: "device_inventory_items",
+        metadata: { sourceTestingId: testItem.id },
+        module: "Device Inventory",
+        recordLabel: getTestLabel(testItem),
+        summary: `Moved ${getTestLabel(testItem)} from Ongoing Testing to Inventory Records.`,
+      });
+
+      // Delete the testing row only after the inventory insert succeeds.
       const { error: deleteError } = await supabase
         .from("ongoing_testing_items")
         .delete()
@@ -261,6 +301,24 @@ export default function OngoingTestingPage() {
       return;
     }
 
+    const itemToDelete = items.find((item) => item.id === itemId);
+    if (!itemToDelete) {
+      return;
+    }
+
+    // Archive first so deleted testing records remain restorable.
+    const { error: archiveError } = await archiveRecord({
+      recordData: mapTestToDb(itemToDelete),
+      recordLabel: itemToDelete.serialNumber || itemToDelete.model || itemToDelete.clientCode,
+      recordType: "Ongoing Testing",
+      sourceTable: "ongoing_testing_items",
+    });
+
+    if (archiveError) {
+      setError(`Failed to archive record: ${archiveError.message}`);
+      return;
+    }
+
     const { error: deleteError } = await supabase
       .from("ongoing_testing_items")
       .delete()
@@ -271,6 +329,15 @@ export default function OngoingTestingPage() {
       return;
     }
 
+    await logAuditEvent({
+      action: "ARCHIVE",
+      beforeData: mapTestToDb(itemToDelete),
+      entityId: itemToDelete.id,
+      entityTable: "ongoing_testing_items",
+      module: "Ongoing Testing",
+      recordLabel: getTestLabel(itemToDelete),
+      summary: `Archived ongoing testing record for ${getTestLabel(itemToDelete)}.`,
+    });
     setItems((current) => current.filter((item) => item.id !== itemId));
     setSelectedId(items.find((item) => item.id !== itemId)?.id || null);
   };
@@ -282,6 +349,7 @@ export default function OngoingTestingPage() {
     setUploadingId(itemId);
 
     try {
+      // Build a storage-safe file name so uploads do not fail on spaces or special characters.
       const fileExt = file.name.split(".").pop();
       const safeBaseName = file.name
         .replace(/\.[^/.]+$/, "")
@@ -973,6 +1041,7 @@ function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
 
 function mapTestFromDb(dbItem) {
   return {
+    // Normalize Supabase row shape into the field names used by the testing UI.
     id: dbItem.id,
     clientId: dbItem.client_id || "",
     clientName: dbItem.clients?.name || "",
@@ -994,11 +1063,13 @@ function mapTestFromDb(dbItem) {
 
 function mapTestToDb(form) {
   return {
+    // Normalize React form state back into Supabase column names.
     client_id: form.clientId || null,
     date_received: form.dateReceived || null,
     package_style: form.packageStyle || null,
     model: form.model || null,
     with_adapter: form.withAdapter || "No",
+    picture_url: form.pictureUrl || null,
     serial_number: form.serialNumber || null,
     status_id: form.statusId || null,
     repair_by: form.repairBy || null,
@@ -1006,6 +1077,10 @@ function mapTestToDb(form) {
     senior_test_by: form.seniorTestBy || null,
     remarks: form.remarks || null,
   };
+}
+
+function getTestLabel(item) {
+  return item?.serialNumber || item?.model || item?.clientCode || "Untitled record";
 }
 
 function isInsideRange(date, from, to) {

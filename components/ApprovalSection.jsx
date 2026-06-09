@@ -8,6 +8,7 @@ import {
 import VerifiedUserRoundedIcon from "@mui/icons-material/VerifiedUserRounded";
 
 const textFieldProps = {
+  // Shared TextField settings keep approval fields consistent with the rest of the report.
   fullWidth: true,
   variant: "outlined",
   size: "small",
@@ -20,6 +21,7 @@ const textFieldProps = {
 
 export default function ApprovalSection({ approval, onChange }) {
   const updateField = (field) => (event) => {
+    // Send approval field updates back to the parent report state.
     onChange(field, event.target.value);
   };
 

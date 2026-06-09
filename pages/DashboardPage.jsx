@@ -57,8 +57,9 @@ const sampleTesting = [
   { id: 3, client_id: 2, status_id: 1 },
 ];
 
-export default function DashboardPage({ mode, onToggleMode }) {
+export default function DashboardPage({ mode, onToggleMode, userEmail }) {
   const theme = useTheme();
+  // Start with sample data so the dashboard still renders before Supabase data loads.
   const [clients, setClients] = useState(sampleClients);
   const [inventory, setInventory] = useState(sampleInventory);
   const [testing, setTesting] = useState(sampleTesting);
@@ -72,6 +73,7 @@ export default function DashboardPage({ mode, onToggleMode }) {
     async function loadDashboardData() {
       if (!supabase) return;
 
+      // Load dashboard source data in parallel because each summary depends on multiple tables.
       const [clientsResult, inventoryResult, testingResult, statusesResult] = await Promise.all([
         supabase.from("clients").select("id, name, client_code, is_active").order("name"),
         supabase.from("device_inventory_items").select("id, client_id, status_id"),
@@ -95,11 +97,13 @@ export default function DashboardPage({ mode, onToggleMode }) {
   }, []);
 
   const statusById = useMemo(
+    // Build a fast lookup map so status calculations do not repeatedly search the array.
     () => new Map(statuses.map((status) => [status.id, status])),
     [statuses]
   );
 
   const allRecords = useMemo(
+    // Combine inventory and testing rows so summary cards can count all device records together.
     () => [
       ...inventory.map((item) => ({ ...item, recordType: "Inventory" })),
       ...testing.map((item) => ({ ...item, recordType: "Ongoing Testing" })),
@@ -108,6 +112,7 @@ export default function DashboardPage({ mode, onToggleMode }) {
   );
 
   const dashboardRows = useMemo(() => {
+    // Build one dashboard row per client with inventory, testing, and status-based totals.
     const rows = clients.map((client) => {
       const clientInventory = inventory.filter((item) => item.client_id === client.id);
       const clientTesting = testing.filter((item) => item.client_id === client.id);
@@ -153,6 +158,7 @@ export default function DashboardPage({ mode, onToggleMode }) {
   }, [clients, inventory, search, sortConfig, statusById, testing]);
 
   const statusBreakdown = useMemo(() => {
+    // Count records by module and by status for the visual status breakdown section.
     const counts = new Map();
     counts.set("Inventory", inventory.length);
     counts.set("Ongoing Testing", testing.length);
@@ -227,7 +233,7 @@ export default function DashboardPage({ mode, onToggleMode }) {
 
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
-      <DashboardHeader mode={mode} onToggleMode={onToggleMode} />
+      <DashboardHeader mode={mode} onToggleMode={onToggleMode} userEmail={userEmail} />
 
       <Box
         sx={{
@@ -372,7 +378,7 @@ export default function DashboardPage({ mode, onToggleMode }) {
   );
 }
 
-function DashboardHeader({ mode, onToggleMode }) {
+function DashboardHeader({ mode, onToggleMode, userEmail }) {
   const theme = useTheme();
   return (
     <Paper elevation={0} sx={{ border: borderColor(theme), borderRadius: 2, mb: 2, p: 1.5 }}>
@@ -418,10 +424,10 @@ function DashboardHeader({ mode, onToggleMode }) {
             <Avatar sx={{ bgcolor: "#1f5f99", height: 34, width: 34 }}>AD</Avatar>
             <Box sx={{ display: { xs: "none", sm: "block" } }}>
               <Typography variant="body2" fontWeight={900}>
-                Admin User
+                {userEmail || "Admin User"}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Operations
+                Signed in
               </Typography>
             </Box>
           </Stack>

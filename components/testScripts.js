@@ -1,3 +1,4 @@
+// Central checklist source used by the on-screen Test Checklist and generated PDF report.
 export const tests = [
   "IP Address can be updated and saved",
   "Subnet Mask can be updated and saved",

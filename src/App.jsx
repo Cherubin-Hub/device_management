@@ -1,29 +1,46 @@
 import {
   Box,
+  Button,
+  CircularProgress,
   CssBaseline,
+  Divider,
   Stack,
   ThemeProvider,
   Typography,
   createTheme,
 } from "@mui/material";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import ArchiveRoundedIcon from "@mui/icons-material/ArchiveRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+import ArchivedRecordsPage from "../pages/ArchivedRecordsPage";
+import AuditTrailPage from "../pages/AuditTrailPage";
 import ConfigurationsPage from "../pages/ConfigurationsPage";
 import DashboardPage from "../pages/DashboardPage";
 import DeviceManagementPage from "../pages/InventoryRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
+import LoginPage from "../pages/LoginPage";
 import OngoingTestingPage from "../pages/OngoingTestingPage";
+import { supabase } from "./lib/supabase";
 
 function App() {
+  // Track the active module so the sidebar can switch pages without changing routes.
   const [activePage, setActivePage] = useState("dashboard");
+  // Keep the Device Inventory group expanded because most workflows live under it.
   const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(true);
+  // Persist the selected visual theme so the app keeps the same mode after reload.
   const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "light");
+  // Store the Supabase Auth session used to protect the application pages.
+  const [session, setSession] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  // Build the MUI theme from the selected mode while preserving the existing UI styling.
   const theme = useMemo(
     () =>
       createTheme({
@@ -51,14 +68,63 @@ function App() {
   const toggleThemeMode = () => {
     setThemeMode((current) => {
       const next = current === "dark" ? "light" : "dark";
+      // Save the theme preference locally because login state and theme are independent.
       localStorage.setItem("endivio-theme", next);
       return next;
     });
   };
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSession() {
+      if (!supabase) {
+        // Allow the login screen to render even when environment variables are missing.
+        setIsAuthLoading(false);
+        return;
+      }
+
+      // Retrieve the current Supabase session before deciding whether to show login or the app.
+      const { data } = await supabase.auth.getSession();
+      if (mounted) {
+        setSession(data.session || null);
+        setIsAuthLoading(false);
+      }
+    }
+
+    loadSession();
+    // Keep the UI in sync when Supabase signs the user in or out.
+    const { data: authListener } = supabase?.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setIsAuthLoading(false);
+    }) || { data: null };
+
+    return () => {
+      mounted = false;
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    if (!supabase) return;
+    // Sign out through Supabase, then reset the visible page to the dashboard.
+    await supabase.auth.signOut();
+    setSession(null);
+    setActivePage("dashboard");
+  };
+
+  const currentUserEmail = session?.user?.email || "";
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      {isAuthLoading ? (
+        <Box sx={{ alignItems: "center", bgcolor: "background.default", display: "flex", justifyContent: "center", minHeight: "100svh" }}>
+          <CircularProgress />
+        </Box>
+      ) : !session ? (
+        <LoginPage mode={themeMode} onLogin={setSession} onToggleMode={toggleThemeMode} />
+      ) : (
       <Box sx={{ display: "flex", minHeight: "100svh", bgcolor: "background.default" }}>
       <Box
         component="aside"
@@ -111,6 +177,20 @@ function App() {
               label="Configurations"
               onClick={() => setActivePage("ConfigurationsPage")}
             />
+            <SidebarItem
+              active={activePage === "archivedRecords"}
+              child
+              icon={<ArchiveRoundedIcon fontSize="small" />}
+              label="Archived Records"
+              onClick={() => setActivePage("archivedRecords")}
+            />
+            <SidebarItem
+              active={activePage === "auditTrail"}
+              child
+              icon={<HistoryRoundedIcon fontSize="small" />}
+              label="Audit Trail"
+              onClick={() => setActivePage("auditTrail")}
+            />
           </Stack>
         ) : null}
 
@@ -120,18 +200,48 @@ function App() {
           label="Testing Report"
           onClick={() => setActivePage("testing")}
         /> */}
+
+        <Box sx={{ mt: "auto", p: 1.25 }}>
+          <Divider sx={{ borderColor: "rgba(255,255,255,0.12)", mb: 1.25 }} />
+          <Typography variant="caption" sx={{ color: "#9fb0bf", display: "block", mb: 0.5 }}>
+            Signed in as
+          </Typography>
+          <Typography variant="body2" fontWeight={800} noWrap sx={{ color: "#ffffff", mb: 1 }}>
+            {currentUserEmail}
+          </Typography>
+          <Button
+            fullWidth
+            size="small"
+            variant="outlined"
+            startIcon={<LogoutRoundedIcon />}
+            onClick={handleLogout}
+            sx={{
+              borderColor: "rgba(255,255,255,0.22)",
+              color: "#f8fafc",
+              justifyContent: "flex-start",
+              textTransform: "none",
+              "&:hover": { borderColor: "#38bdf8", bgcolor: "rgba(56,189,248,0.12)" },
+            }}
+          >
+            Logout
+          </Button>
+        </Box>
       </Box>
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
+        {/* Render only the selected module so inactive pages do not keep unnecessary UI state mounted. */}
         {activePage === "dashboard" ? (
-          <DashboardPage mode={themeMode} onToggleMode={toggleThemeMode} />
+          <DashboardPage mode={themeMode} onToggleMode={toggleThemeMode} userEmail={currentUserEmail} />
         ) : null}
         {activePage === "deviceInventoryRecords" ? <DeviceManagementPage /> : null}
         {activePage === "ongoingTesting" ? <OngoingTestingPage /> : null}
         {activePage === "ConfigurationsPage" ? <ConfigurationsPage /> : null}
+        {activePage === "archivedRecords" ? <ArchivedRecordsPage /> : null}
+        {activePage === "auditTrail" ? <AuditTrailPage /> : null}
         {activePage === "testing" ? <DeviceTestingPage /> : null}
       </Box>
       </Box>
+      )}
     </ThemeProvider>
   );
 }
