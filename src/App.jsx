@@ -31,6 +31,7 @@ import LoginPage from "../pages/LoginPage";
 import OngoingTestingPage from "../pages/OngoingTestingPage";
 import RepairDeviceCheckPage from "../pages/RepairDeviceCheckPage";
 import RepairDeviceWorkflowPage from "../pages/RepairDeviceWorkflowPage";
+import { getUserDisplayName } from "./lib/repairWorkflow";
 import { supabase } from "./lib/supabase";
 
 function App() {
@@ -42,12 +43,16 @@ function App() {
   const [testingDeviceOpen, setTestingDeviceOpen] = useState(false);
   // Store the selected repair workflow id when the user opens the checking page.
   const [activeRepairRecordId, setActiveRepairRecordId] = useState(null);
+  // Track whether the repair checking page is opened from a queue for viewing only.
+  const [repairReadOnly, setRepairReadOnly] = useState(false);
   // Remember where the repair checking page was opened from so Back returns to the right module.
   const [repairBackPage, setRepairBackPage] = useState("myRepairDevice");
   // Persist the selected visual theme so the app keeps the same mode after reload.
   const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "light");
   // Store the Supabase Auth session used to protect the application pages.
   const [session, setSession] = useState(null);
+  // Store the freshest Supabase Auth user because profile metadata can change after login.
+  const [currentUser, setCurrentUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   // Build the MUI theme from the selected mode while preserving the existing UI styling.
   const theme = useMemo(
@@ -100,16 +105,22 @@ function App() {
 
       // Retrieve the current Supabase session before deciding whether to show login or the app.
       const { data } = await supabase.auth.getSession();
+      // Fetch the user from Supabase Auth so display_name changes are not stuck on the cached session.
+      const { data: userData } = data.session ? await supabase.auth.getUser() : { data: { user: null } };
       if (mounted) {
         setSession(data.session || null);
+        setCurrentUser(userData.user || data.session?.user || null);
         setIsAuthLoading(false);
       }
     }
 
     loadSession();
     // Keep the UI in sync when Supabase signs the user in or out.
-    const { data: authListener } = supabase?.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: authListener } = supabase?.auth.onAuthStateChange(async (_event, nextSession) => {
+      // Refresh the user object after auth changes so dashboard/sidebar display metadata updates.
+      const { data: userData } = nextSession ? await supabase.auth.getUser() : { data: { user: null } };
       setSession(nextSession);
+      setCurrentUser(userData.user || nextSession?.user || null);
       setIsAuthLoading(false);
     }) || { data: null };
 
@@ -124,10 +135,13 @@ function App() {
     // Sign out through Supabase, then reset the visible page to the dashboard.
     await supabase.auth.signOut();
     setSession(null);
+    setCurrentUser(null);
     setActivePage("dashboard");
   };
 
-  const currentUserEmail = session?.user?.email || "";
+  const currentUserEmail = currentUser?.email || session?.user?.email || "";
+  // Build one consistent display name for headers, sidebars, sign-offs, and workflow actions.
+  const currentUserDisplayName = getUserDisplayName(currentUser || session?.user, currentUserEmail);
 
   return (
     <ThemeProvider theme={theme}>
@@ -226,10 +240,24 @@ function App() {
               onClick={() => setActivePage("newRepairDevice")}
             />
             <SidebarItem
-              active={activePage === "myRepairDevice" || activePage === "repairDeviceCheck"}
+              active={activePage === "ongoingSupportTesting" || (activePage === "repairDeviceCheck" && repairBackPage === "ongoingSupportTesting")}
               child
               icon={<AssessmentRoundedIcon fontSize="small" />}
-              label="My Repair Device"
+              label="Ongoing Support Testing"
+              onClick={() => setActivePage("ongoingSupportTesting")}
+            />
+            <SidebarItem
+              active={activePage === "ongoingSeniorTesting" || (activePage === "repairDeviceCheck" && repairBackPage === "ongoingSeniorTesting")}
+              child
+              icon={<AssessmentRoundedIcon fontSize="small" />}
+              label="Ongoing Senior Testing"
+              onClick={() => setActivePage("ongoingSeniorTesting")}
+            />
+            <SidebarItem
+              active={activePage === "myRepairDevice" || (activePage === "repairDeviceCheck" && repairBackPage === "myRepairDevice")}
+              child
+              icon={<AssessmentRoundedIcon fontSize="small" />}
+              label="My Repair/Testing Device"
               onClick={() => setActivePage("myRepairDevice")}
             />
             <SidebarItem
@@ -255,7 +283,7 @@ function App() {
             Signed in as
           </Typography>
           <Typography variant="body2" fontWeight={800} noWrap sx={{ color: "#ffffff", mb: 1 }}>
-            {currentUserEmail}
+            {currentUserDisplayName}
           </Typography>
           <Button
             fullWidth
@@ -279,17 +307,19 @@ function App() {
       <Box sx={{ flex: 1, minWidth: 0 }}>
         {/* Render only the selected module so inactive pages do not keep unnecessary UI state mounted. */}
         {activePage === "dashboard" ? (
-          <DashboardPage mode={themeMode} onToggleMode={toggleThemeMode} userEmail={currentUserEmail} />
+          <DashboardPage mode={themeMode} onToggleMode={toggleThemeMode} userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} />
         ) : null}
         {activePage === "deviceInventoryRecords" ? <DeviceManagementPage /> : null}
         {activePage === "ongoingTesting" ? <OngoingTestingPage /> : null}
         {activePage === "ConfigurationsPage" ? <ConfigurationsPage /> : null}
         {activePage === "archivedRecords" ? <ArchivedRecordsPage /> : null}
         {activePage === "auditTrail" ? <AuditTrailPage /> : null}
-        {activePage === "newRepairDevice" ? <RepairDeviceWorkflowPage mode="new" userEmail={currentUserEmail} onOpenRecord={(id) => { setActiveRepairRecordId(id); setRepairBackPage("newRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "myRepairDevice" ? <RepairDeviceWorkflowPage mode="my" userEmail={currentUserEmail} onOpenRecord={(id) => { setActiveRepairRecordId(id); setRepairBackPage("myRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "doneRepairDevice" ? <RepairDeviceWorkflowPage mode="done" userEmail={currentUserEmail} onOpenRecord={(id) => { setActiveRepairRecordId(id); setRepairBackPage("doneRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "repairDeviceCheck" && activeRepairRecordId ? <RepairDeviceCheckPage recordId={activeRepairRecordId} userEmail={currentUserEmail} onBack={() => setActivePage(repairBackPage)} /> : null}
+        {activePage === "newRepairDevice" ? <RepairDeviceWorkflowPage mode="new" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("newRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "myRepairDevice" ? <RepairDeviceWorkflowPage mode="my" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = false) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("myRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "ongoingSupportTesting" ? <RepairDeviceWorkflowPage mode="support" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("ongoingSupportTesting"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "ongoingSeniorTesting" ? <RepairDeviceWorkflowPage mode="senior" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("ongoingSeniorTesting"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "doneRepairDevice" ? <RepairDeviceWorkflowPage mode="done" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("doneRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "repairDeviceCheck" && activeRepairRecordId ? <RepairDeviceCheckPage readOnly={repairReadOnly} recordId={activeRepairRecordId} userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onBack={() => setActivePage(repairBackPage)} /> : null}
         {activePage === "testing" ? <DeviceTestingPage /> : null}
       </Box>
       </Box>

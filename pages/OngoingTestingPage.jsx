@@ -20,6 +20,7 @@ import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
 import { useEffect, useMemo, useState } from "react";
+import { formatPersonName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
 export default function OngoingTestingPage() {
@@ -402,9 +403,9 @@ export default function OngoingTestingPage() {
                       "-"
                     )}
                   </TableCell>
-                  <TruncatedCell align="center">{item.repairBy}</TruncatedCell>
-                  <TruncatedCell align="center">{item.testBy}</TruncatedCell>
-                  <TruncatedCell align="center">{item.seniorTestBy}</TruncatedCell>
+                  <TruncatedCell align="center">{formatPersonName(item.repairBy)}</TruncatedCell>
+                  <TruncatedCell align="center">{formatPersonName(item.testBy)}</TruncatedCell>
+                  <TruncatedCell align="center">{formatPersonName(item.seniorTestBy)}</TruncatedCell>
                   <TruncatedCell>{item.remarks}</TruncatedCell>
                 </TableRow>
               ))

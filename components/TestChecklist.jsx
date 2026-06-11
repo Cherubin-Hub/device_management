@@ -17,8 +17,10 @@ import {
 import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
 import { tests } from "./testScripts";
 
-export default function TestChecklist({ hideSummaryChip = false, results, onResultsChange }) {
+export default function TestChecklist({ hideSummaryChip = false, readOnly = false, results, onResultsChange }) {
   const handleStatusChange = (index, status) => {
+    // Stop changes when this checklist is opened from a queue page for viewing only.
+    if (readOnly) return;
     // Toggle the selected status for one checklist row while keeping the other rows unchanged.
     onResultsChange((current) =>
       current.map((result, itemIndex) =>
@@ -30,6 +32,8 @@ export default function TestChecklist({ hideSummaryChip = false, results, onResu
   };
 
   const handleRemark = (index, value) => {
+    // Stop remarks edits when this checklist is opened from a queue page for viewing only.
+    if (readOnly) return;
     // Update only the remarks for the selected checklist row.
     onResultsChange((current) =>
       current.map((result, itemIndex) =>
@@ -215,6 +219,7 @@ export default function TestChecklist({ hideSummaryChip = false, results, onResu
                         control={
                           <Checkbox
                             checked={results[index].status === status}
+                            disabled={readOnly}
                             onChange={() => handleStatusChange(index, status)}
                             color={status === "Yes" ? "success" : "primary"}
                             size="small"
@@ -241,6 +246,7 @@ export default function TestChecklist({ hideSummaryChip = false, results, onResu
                     size="small"
                     fullWidth
                     placeholder="Add remarks"
+                    disabled={readOnly}
                     value={results[index].remarks}
                     onChange={(e) =>
                       handleRemark(index, e.target.value)

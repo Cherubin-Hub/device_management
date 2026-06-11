@@ -57,7 +57,7 @@ const sampleTesting = [
   { id: 3, client_id: 2, status_id: 1 },
 ];
 
-export default function DashboardPage({ mode, onToggleMode, userEmail }) {
+export default function DashboardPage({ mode, onToggleMode, userDisplayName, userEmail }) {
   const theme = useTheme();
   // Start with sample data so the dashboard still renders before Supabase data loads.
   const [clients, setClients] = useState(sampleClients);
@@ -233,7 +233,7 @@ export default function DashboardPage({ mode, onToggleMode, userEmail }) {
 
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
-      <DashboardHeader mode={mode} onToggleMode={onToggleMode} userEmail={userEmail} />
+      <DashboardHeader mode={mode} onToggleMode={onToggleMode} userDisplayName={userDisplayName} userEmail={userEmail} />
 
       <Box
         sx={{
@@ -378,7 +378,7 @@ export default function DashboardPage({ mode, onToggleMode, userEmail }) {
   );
 }
 
-function DashboardHeader({ mode, onToggleMode, userEmail }) {
+function DashboardHeader({ mode, onToggleMode, userDisplayName, userEmail }) {
   const theme = useTheme();
   return (
     <Paper elevation={0} sx={{ border: borderColor(theme), borderRadius: 2, mb: 2, p: 1.5 }}>
@@ -421,10 +421,10 @@ function DashboardHeader({ mode, onToggleMode, userEmail }) {
             </Stack>
           </Tooltip>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Avatar sx={{ bgcolor: "#1f5f99", height: 34, width: 34 }}>AD</Avatar>
+            <Avatar sx={{ bgcolor: "#1f5f99", height: 34, width: 34 }}>{getInitials(userDisplayName || userEmail || "Admin User")}</Avatar>
             <Box sx={{ display: { xs: "none", sm: "block" } }}>
               <Typography variant="body2" fontWeight={900}>
-                {userEmail || "Admin User"}
+                {userDisplayName || userEmail || "Admin User"}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Signed in
@@ -435,6 +435,16 @@ function DashboardHeader({ mode, onToggleMode, userEmail }) {
       </Stack>
     </Paper>
   );
+}
+
+function getInitials(value) {
+  // Build avatar initials from the visible display name instead of a hardcoded label.
+  return String(value || "User")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join("") || "U";
 }
 
 function SummaryCard({ color, description, icon, title, value }) {

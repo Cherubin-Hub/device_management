@@ -29,11 +29,28 @@ export function getRecordLabel(record) {
 
 export function getUserDisplayName(user, fallbackEmail = "") {
   // Prefer Supabase profile metadata when the login provider supplies a full name.
-  const metadataName = user?.user_metadata?.full_name || user?.user_metadata?.name || "";
+  const metadataName = user?.user_metadata?.display_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "";
   // Use the user's email from Supabase Auth when metadata name is not available.
   const email = user?.email || fallbackEmail || "";
-  // Use the part before @ as a readable fallback instead of showing a blank name.
-  const emailName = email.includes("@") ? email.split("@")[0] : email;
+  // Use the readable person-name formatter instead of showing the raw email address.
+  const emailName = formatPersonName(email);
   // Return the best available display name.
   return metadataName || emailName || "User";
+}
+
+export function formatPersonName(value) {
+  // Keep blank values blank so tables can still render their normal dash fallback.
+  if (!value) return "";
+  // Work with a trimmed string because Supabase values may include accidental spaces.
+  const text = String(value).trim();
+  // Remove the domain when the stored value is an email address.
+  const localPart = text.includes("@") ? text.split("@")[0] : text;
+  // Replace common username separators with spaces for a person-readable display.
+  const spaced = localPart.replace(/[._-]+/g, " ");
+  // Convert each word to title case while preserving already spaced full names.
+  return spaced
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
 }

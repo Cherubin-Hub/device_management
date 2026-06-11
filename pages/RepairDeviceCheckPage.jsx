@@ -16,7 +16,7 @@ import TestChecklist from "../components/TestChecklist.jsx";
 import { tests } from "../components/testScripts.js";
 import { WorkflowStatusChip } from "../components/RepairWorkflowChips.jsx";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
-import { getRecordLabel, getUserDisplayName } from "../src/lib/repairWorkflow.js";
+import { formatPersonName, getRecordLabel, getUserDisplayName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
 const emptyResults = tests.map(() => ({
@@ -45,7 +45,7 @@ const emptyRepairForm = {
   additionalComments: "",
 };
 
-export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
+export default function RepairDeviceCheckPage({ readOnly = false, recordId, onBack, userDisplayName, userEmail }) {
   // Store the repair workflow row being checked.
   const [record, setRecord] = useState(null);
   // Store editable checking fields separately from the locked inventory fields.
@@ -85,9 +85,9 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
         devicePinwidth: data.device_pinwidth || "",
         previousPinwidth: data.previous_pinwidth || "",
         checkingRemarks: data.checking_remarks || "",
-        repairBy: data.repair_by || "",
-        testBy: data.test_by || "",
-        seniorTestBy: data.senior_test_by || "",
+        repairBy: formatPersonName(data.repair_by),
+        testBy: formatPersonName(data.test_by),
+        seniorTestBy: formatPersonName(data.senior_test_by),
         additionalComments: data.additional_comments || "",
       });
       setTestResults(normalizeChecklist(data.test_results));
@@ -102,6 +102,8 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
   }, [recordId]);
 
   const updateForm = (field) => (event) => {
+    // Queue pages can open this screen for viewing only, so edits are blocked in read-only mode.
+    if (readOnly) return;
     // Update one checking field while preserving all other form values.
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
@@ -117,18 +119,16 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
     checking_remarks: form.checkingRemarks || null,
     // Save the full checklist as JSON so each script keeps status and remarks.
     test_results: testResults,
-    // Save automatically captured personnel names.
-    repair_by: form.repairBy || null,
-    // Save automatically captured tester name.
-    test_by: form.testBy || null,
-    // Save automatically captured senior/supervisor checker name.
-    senior_test_by: form.seniorTestBy || null,
+    // Do not save repair_by, test_by, or senior_test_by during draft saves.
+    // Those read-only names are workflow sign-offs and must not be cleared by stale form state.
     additional_comments: form.additionalComments || null,
     // Touch updated_at so users can see the latest movement in the database.
     updated_at: new Date().toISOString(),
   }), [form, testResults]);
 
   const saveDraft = useCallback(async () => {
+    // Viewing from queue pages should never write draft changes to Supabase.
+    if (readOnly) return record;
     if (!record) return null;
 
     // Save the current draft without changing the workflow stage.
@@ -146,9 +146,10 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
 
     setRecord(data);
     return data;
-  }, [buildPayload, record]);
+  }, [buildPayload, readOnly, record]);
 
   useEffect(() => {
+    if (readOnly) return undefined;
     if (!record || isLoading) return undefined;
 
     // Debounce auto-save so typing does not send a request on every keystroke.
@@ -157,9 +158,10 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
     }, 650);
 
     return () => window.clearTimeout(saveTimer);
-  }, [form, isLoading, record, saveDraft, testResults]);
+  }, [form, isLoading, readOnly, record, saveDraft, testResults]);
 
   const handleDone = async () => {
+    if (readOnly) return;
     if (!record) return;
 
     // Save the latest form values before moving to the next checker stage.
@@ -170,17 +172,17 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
     const nextStatus = getNextWorkflowStatus(savedRecord.workflow_status);
     // Read the signed-in user so automatic sign-off fields can use the display name.
     const { data: userData } = await supabase.auth.getUser();
-    const actorName = getUserDisplayName(userData?.user, userEmail);
+    const actorName = userDisplayName || getUserDisplayName(userData?.user, userEmail);
     // Fill the correct sign-off field for the stage being completed.
-    const signoffPayload = getSignoffPayload(savedRecord.workflow_status, form, actorName);
+    const signoffPayload = getSignoffPayload(savedRecord.workflow_status, savedRecord, form, actorName);
 
     const { data, error: doneError } = await supabase
       .from("repair_device_records")
       .update({
         ...signoffPayload,
-        assigned_at: savedRecord.assigned_at || new Date().toISOString(),
-        assigned_to: savedRecord.assigned_to || null,
-        assigned_to_email: savedRecord.assigned_to_email || userEmail || null,
+        assigned_at: nextStatus === "Done Repair Device" ? savedRecord.assigned_at : null,
+        assigned_to: nextStatus === "Done Repair Device" ? savedRecord.assigned_to || null : null,
+        assigned_to_email: nextStatus === "Done Repair Device" ? savedRecord.assigned_to_email || userEmail || null : null,
         completed_at: nextStatus === "Done Repair Device" ? new Date().toISOString() : savedRecord.completed_at,
         updated_at: new Date().toISOString(),
         workflow_status: nextStatus,
@@ -244,16 +246,18 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
             <WorkflowStatusChip value={record.workflow_status} />
           </Stack>
           <Typography variant="caption" color="text.secondary">
-            Double-click workflow page with automatic saving for device checking.
+            {readOnly ? "Viewing only. Get the record first before editing." : "Double-click workflow page with automatic saving for device checking."}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
           <Button startIcon={<ArrowBackRoundedIcon />} variant="outlined" onClick={onBack} sx={{ textTransform: "none" }}>
             Back
           </Button>
-          <Button startIcon={<TaskAltRoundedIcon />} variant="contained" onClick={handleDone} sx={{ textTransform: "none" }}>
-            Done
-          </Button>
+          {!readOnly ? (
+            <Button startIcon={<TaskAltRoundedIcon />} variant="contained" onClick={handleDone} sx={{ textTransform: "none" }}>
+              Done
+            </Button>
+          ) : null}
         </Stack>
       </Stack>
 
@@ -275,15 +279,15 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
             <ReadOnlyField label="SN Number" value={record.sn_number} />
             <ReadOnlyField label="Device Type" value={record.device_type} />
             <ReadOnlyField label="With Adapter" value={record.with_adapter} />
-            <TextField size="small" label="Device Algorithm" value={form.deviceAlgorithm} onChange={updateForm("deviceAlgorithm")} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField size="small" label="Device Pinwidth" value={form.devicePinwidth} onChange={updateForm("devicePinwidth")} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField size="small" label="Previous Pinwidth" value={form.previousPinwidth} onChange={updateForm("previousPinwidth")} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField size="small" label="Remarks" value={form.checkingRemarks} onChange={updateForm("checkingRemarks")} multiline minRows={3} slotProps={{ inputLabel: { shrink: true } }} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
+            <TextField size="small" label="Device Algorithm" value={form.deviceAlgorithm} disabled={readOnly} onChange={updateForm("deviceAlgorithm")} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField size="small" label="Device Pinwidth" value={form.devicePinwidth} disabled={readOnly} onChange={updateForm("devicePinwidth")} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField size="small" label="Previous Pinwidth" value={form.previousPinwidth} disabled={readOnly} onChange={updateForm("previousPinwidth")} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField size="small" label="Remarks" value={form.checkingRemarks} disabled={readOnly} onChange={updateForm("checkingRemarks")} multiline minRows={3} slotProps={{ inputLabel: { shrink: true } }} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
           </Box>
         </Paper>
 
         <Paper elevation={0} sx={panelSx}>
-          <TestChecklist hideSummaryChip results={testResults} onResultsChange={setTestResults} />
+          <TestChecklist hideSummaryChip readOnly={readOnly} results={testResults} onResultsChange={setTestResults} />
         </Paper>
 
         <Paper elevation={0} sx={panelSx}>
@@ -291,10 +295,10 @@ export default function RepairDeviceCheckPage({ recordId, onBack, userEmail }) {
             Checking Sign-Off
           </Typography>
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" } }}>
-            <ReadOnlyField label="Repair By" value={form.repairBy} />
-            <ReadOnlyField label="Tested By" value={form.testBy} />
-            <ReadOnlyField label="Senior Tested By" value={form.seniorTestBy} />
-            <TextField size="small" label="Additional Comments" value={form.additionalComments} onChange={updateForm("additionalComments")} multiline minRows={3} slotProps={{ inputLabel: { shrink: true } }} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
+            <ReadOnlyField label="Repair By" value={shouldShowRepairBy(record.workflow_status) ? form.repairBy : ""} />
+            <ReadOnlyField label="Tested By" value={shouldShowTestedBy(record.workflow_status) ? form.testBy : ""} />
+            <ReadOnlyField label="Senior Tested By" value={shouldShowSeniorTestedBy(record.workflow_status) ? form.seniorTestBy : ""} />
+            <TextField size="small" label="Additional Comments" value={form.additionalComments} disabled={readOnly} onChange={updateForm("additionalComments")} multiline minRows={3} slotProps={{ inputLabel: { shrink: true } }} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
           </Box>
         </Paper>
       </Stack>
@@ -333,11 +337,41 @@ function getNextWorkflowStatus(currentStatus) {
   return "Done Repair Device";
 }
 
-function getSignoffPayload(currentStatus, form, actorName) {
-  // Fill Tested By when the repair stage is completed.
-  if (currentStatus === "Repair By" || currentStatus === "For Testing") return { test_by: form.testBy || actorName };
-  // Fill Senior Tested By when tested or senior-tested stages are completed.
-  return { senior_test_by: form.seniorTestBy || actorName };
+function getSignoffPayload(currentStatus, record, form, actorName) {
+  // Preserve an existing Repair By name unless the current user is completing Repair By now.
+  const repairBy = record.repair_by || form.repairBy || actorName;
+  // Preserve an existing Tested By name so senior completion cannot erase the previous checker.
+  const testedBy = record.test_by || form.testBy || actorName;
+  // Preserve an existing Senior Tested By name unless the current user is completing that stage now.
+  const seniorTestedBy = record.senior_test_by || form.seniorTestBy || actorName;
+
+  // Completing Repair By should capture Repair By, then release the record to Tested By.
+  if (currentStatus === "Repair By" || currentStatus === "For Testing") {
+    return { repair_by: actorName || repairBy, senior_test_by: record.senior_test_by || null, test_by: record.test_by || null };
+  }
+
+  // Completing Tested By should capture Tested By, but Senior Tested By must stay blank until senior testing is done.
+  if (currentStatus === "Tested By" || currentStatus === "Test By" || currentStatus === "Checked By (Senior)") {
+    return { repair_by: repairBy, senior_test_by: record.senior_test_by || null, test_by: testedBy };
+  }
+
+  // Completing the final stage should write Senior Tested By only when senior testing is actually done.
+  return { repair_by: repairBy, senior_test_by: actorName || seniorTestedBy, test_by: testedBy };
+}
+
+function shouldShowRepairBy(currentStatus) {
+  // Repair By should only appear after the repair stage is done.
+  return currentStatus === "Tested By" || currentStatus === "Test By" || currentStatus === "Checked By (Senior)" || currentStatus === "Senior Tested By" || currentStatus === "Senior Test By" || currentStatus === "Checked By (Supervisor)" || currentStatus === "Done Repair Device";
+}
+
+function shouldShowTestedBy(currentStatus) {
+  // Tested By should only appear after the support testing stage is done.
+  return currentStatus === "Senior Tested By" || currentStatus === "Senior Test By" || currentStatus === "Checked By (Supervisor)" || currentStatus === "Done Repair Device";
+}
+
+function shouldShowSeniorTestedBy(currentStatus) {
+  // Senior Tested By should only appear after the final senior testing stage is completed.
+  return currentStatus === "Done Repair Device";
 }
 
 async function syncOngoingTestingPeople(record) {
@@ -347,9 +381,9 @@ async function syncOngoingTestingPeople(record) {
   await supabase
     .from("ongoing_testing_items")
     .update({
-      repair_by: record.repair_by || null,
-      senior_test_by: record.senior_test_by || null,
-      test_by: record.test_by || null,
+      repair_by: formatPersonName(record.repair_by) || null,
+      senior_test_by: formatPersonName(record.senior_test_by) || null,
+      test_by: formatPersonName(record.test_by) || null,
       updated_at: new Date().toISOString(),
     })
     .eq("source_inventory_id", record.source_inventory_id);
