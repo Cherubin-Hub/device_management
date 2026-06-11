@@ -55,24 +55,24 @@ export default function ApprovalSection({ approval, onChange }) {
       <Divider />
 
       <TextField
-        label="Support Name"
-        placeholder="Technician name"
+        label="Repair By"
+        placeholder="Repair personnel"
         value={approval.testedBy}
         onChange={updateField("testedBy")}
         {...textFieldProps}
       />
 
       <TextField
-        label="Checked By (Senior)"
-        placeholder="Senior Name"
+        label="Tested By"
+        placeholder="Testing personnel"
         value={approval.checkedBySenior}
         onChange={updateField("checkedBySenior")}
         {...textFieldProps}
       />
 
       <TextField
-        label="Checked By (Supervisor)"
-        placeholder="Supervisor Name"
+        label="Senior Tested By"
+        placeholder="Senior testing personnel"
         value={approval.checkedBySupervisor}
         onChange={updateField("checkedBySupervisor")}
         {...textFieldProps}

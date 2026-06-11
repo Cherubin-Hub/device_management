@@ -17,6 +17,7 @@ import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import BuildCircleRoundedIcon from "@mui/icons-material/BuildCircleRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
@@ -28,13 +29,21 @@ import DeviceManagementPage from "../pages/InventoryRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
 import LoginPage from "../pages/LoginPage";
 import OngoingTestingPage from "../pages/OngoingTestingPage";
+import RepairDeviceCheckPage from "../pages/RepairDeviceCheckPage";
+import RepairDeviceWorkflowPage from "../pages/RepairDeviceWorkflowPage";
 import { supabase } from "./lib/supabase";
 
 function App() {
   // Track the active module so the sidebar can switch pages without changing routes.
   const [activePage, setActivePage] = useState("dashboard");
-  // Keep the Device Inventory group expanded because most workflows live under it.
-  const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(true);
+  // Keep the Device Inventory group collapsed on refresh so child modules appear only after the user clicks it.
+  const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(false);
+  // Keep the Testing Device group collapsed until the user opens the repair workflow.
+  const [testingDeviceOpen, setTestingDeviceOpen] = useState(false);
+  // Store the selected repair workflow id when the user opens the checking page.
+  const [activeRepairRecordId, setActiveRepairRecordId] = useState(null);
+  // Remember where the repair checking page was opened from so Back returns to the right module.
+  const [repairBackPage, setRepairBackPage] = useState("myRepairDevice");
   // Persist the selected visual theme so the app keeps the same mode after reload.
   const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "light");
   // Store the Supabase Auth session used to protect the application pages.
@@ -73,6 +82,11 @@ function App() {
       return next;
     });
   };
+
+  useEffect(() => {
+    // Expose the selected theme mode to global CSS so hardcoded areas stay readable.
+    document.documentElement.dataset.theme = themeMode;
+  }, [themeMode]);
 
   useEffect(() => {
     let mounted = true;
@@ -127,6 +141,7 @@ function App() {
       ) : (
       <Box sx={{ display: "flex", minHeight: "100svh", bgcolor: "background.default" }}>
       <Box
+        className="app-sidebar"
         component="aside"
         sx={{
           bgcolor: "#2f3940",
@@ -194,6 +209,39 @@ function App() {
           </Stack>
         ) : null}
 
+        <SidebarGroup
+          icon={<BuildCircleRoundedIcon fontSize="small" />}
+          label="Testing Device"
+          open={testingDeviceOpen}
+          onClick={() => setTestingDeviceOpen((current) => !current)}
+        />
+
+        {testingDeviceOpen ? (
+          <Stack>
+            <SidebarItem
+              active={activePage === "newRepairDevice"}
+              child
+              icon={<BuildCircleRoundedIcon fontSize="small" />}
+              label="New Repair Device"
+              onClick={() => setActivePage("newRepairDevice")}
+            />
+            <SidebarItem
+              active={activePage === "myRepairDevice" || activePage === "repairDeviceCheck"}
+              child
+              icon={<AssessmentRoundedIcon fontSize="small" />}
+              label="My Repair Device"
+              onClick={() => setActivePage("myRepairDevice")}
+            />
+            <SidebarItem
+              active={activePage === "doneRepairDevice"}
+              child
+              icon={<ArchiveRoundedIcon fontSize="small" />}
+              label="Done Repair Device"
+              onClick={() => setActivePage("doneRepairDevice")}
+            />
+          </Stack>
+        ) : null}
+
         {/* <SidebarItem
           active={activePage === "testing"}
           icon={<AssessmentRoundedIcon fontSize="small" />}
@@ -238,6 +286,10 @@ function App() {
         {activePage === "ConfigurationsPage" ? <ConfigurationsPage /> : null}
         {activePage === "archivedRecords" ? <ArchivedRecordsPage /> : null}
         {activePage === "auditTrail" ? <AuditTrailPage /> : null}
+        {activePage === "newRepairDevice" ? <RepairDeviceWorkflowPage mode="new" userEmail={currentUserEmail} onOpenRecord={(id) => { setActiveRepairRecordId(id); setRepairBackPage("newRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "myRepairDevice" ? <RepairDeviceWorkflowPage mode="my" userEmail={currentUserEmail} onOpenRecord={(id) => { setActiveRepairRecordId(id); setRepairBackPage("myRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "doneRepairDevice" ? <RepairDeviceWorkflowPage mode="done" userEmail={currentUserEmail} onOpenRecord={(id) => { setActiveRepairRecordId(id); setRepairBackPage("doneRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {activePage === "repairDeviceCheck" && activeRepairRecordId ? <RepairDeviceCheckPage recordId={activeRepairRecordId} userEmail={currentUserEmail} onBack={() => setActivePage(repairBackPage)} /> : null}
         {activePage === "testing" ? <DeviceTestingPage /> : null}
       </Box>
       </Box>
@@ -270,7 +322,7 @@ function SidebarItem({ active, child = false, icon, label, onClick }) {
       }}
     >
       {icon}
-      <Typography variant="body2" fontWeight={active ? 900 : 700} noWrap>
+      <Typography variant="body2" fontWeight={active ? 900 : 700} noWrap sx={{ color: "inherit !important" }}>
         {label}
       </Typography>
     </Box>
@@ -297,7 +349,7 @@ function SidebarGroup({ icon, label, onClick, open }) {
     >
       {open ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
       {icon}
-      <Typography variant="body2" fontWeight={800} noWrap>
+      <Typography variant="body2" fontWeight={800} noWrap sx={{ color: "inherit !important" }}>
         {label}
       </Typography>
     </Box>

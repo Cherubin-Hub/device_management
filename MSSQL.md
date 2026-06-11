@@ -2,6 +2,8 @@
 
 This is the single main Microsoft SQL Server reference for the project. Use it when you want to move the database from Supabase PostgreSQL to MSSQL.
 
+> Important: Do not run this script in the Supabase SQL Editor. It uses SQL Server syntax such as `IDENTITY(1,1)`, `NVARCHAR`, `BIT`, `DATETIME2`, and `dbo.`. For Supabase PostgreSQL, run the script in `SUPABASE.md` instead.
+
 ## 1. Important Architecture Rule
 
 Do not connect the React/Vite frontend directly to MSSQL. Browser apps expose frontend code and environment variables, so direct MSSQL credentials would become unsafe.
@@ -135,6 +137,10 @@ CREATE TABLE dbo.OngoingTestingItems (
     Model NVARCHAR(150) NULL, -- Device model under testing.
     WithAdapter NVARCHAR(20) NULL, -- Indicates if adapter is included.
     SerialNumber NVARCHAR(150) NULL, -- Device serial number.
+    StartRepairingSupport DATE NULL, -- Support start date copied from inventory for generated testing rows.
+    EndDateSupport DATE NULL, -- Support end date copied from inventory for warning and overdue colors.
+    StartQa DATE NULL, -- QA start date copied from inventory for generated testing rows.
+    EndDateQa DATE NULL, -- QA end date copied from inventory for completed workflow state.
     StatusId BIGINT NULL, -- Linked testing status id.
     RepairBy NVARCHAR(255) NULL, -- Assigned repair person.
     TestBy NVARCHAR(255) NULL, -- Assigned tester.
@@ -158,6 +164,86 @@ ON dbo.OngoingTestingItems (StatusId); -- Index StatusId for status-based testin
 -- Improve date range filtering in ongoing testing.
 CREATE INDEX IX_OngoingTestingItems_DateReceived
 ON dbo.OngoingTestingItems (DateReceived); -- Index DateReceived for testing date range filters.
+
+-- Prevent multiple generated testing rows for the same inventory record.
+CREATE UNIQUE INDEX UX_OngoingTestingItems_SourceInventoryId
+ON dbo.OngoingTestingItems (SourceInventoryId) -- Link one generated testing row to one inventory row.
+WHERE SourceInventoryId IS NOT NULL; -- Allow older/manual rows with no source inventory id.
+
+-- Add support start date to existing MSSQL projects that already created OngoingTestingItems.
+IF COL_LENGTH('dbo.OngoingTestingItems', 'StartRepairingSupport') IS NULL
+    ALTER TABLE dbo.OngoingTestingItems ADD StartRepairingSupport DATE NULL; -- Add support start date for generated testing rows.
+
+-- Add support due date to existing MSSQL projects that already created OngoingTestingItems.
+IF COL_LENGTH('dbo.OngoingTestingItems', 'EndDateSupport') IS NULL
+    ALTER TABLE dbo.OngoingTestingItems ADD EndDateSupport DATE NULL; -- Add support due date for green/orange/red row colors.
+
+-- Add QA start date to existing MSSQL projects that already created OngoingTestingItems.
+IF COL_LENGTH('dbo.OngoingTestingItems', 'StartQa') IS NULL
+    ALTER TABLE dbo.OngoingTestingItems ADD StartQa DATE NULL; -- Add QA start date for generated testing rows.
+
+-- Add QA end date to existing MSSQL projects that already created OngoingTestingItems.
+IF COL_LENGTH('dbo.OngoingTestingItems', 'EndDateQa') IS NULL
+    ALTER TABLE dbo.OngoingTestingItems ADD EndDateQa DATE NULL; -- Add QA end date for generated testing rows.
+
+-- Create repair workflow table generated from inventory records.
+CREATE TABLE dbo.RepairDeviceRecords (
+    Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_RepairDeviceRecords PRIMARY KEY, -- Unique repair workflow row identifier.
+    SourceInventoryId BIGINT NULL, -- Inventory row that generated this repair task.
+    Company NVARCHAR(255) NULL, -- Company/client display name copied from inventory.
+    ClientId BIGINT NULL, -- Linked client id.
+    ClientCode NVARCHAR(100) NULL, -- Client code copied from inventory.
+    DateReceived DATE NULL, -- Date received copied from inventory.
+    PackageStyle NVARCHAR(100) NULL, -- Package style copied from inventory.
+    CstNumber NVARCHAR(100) NULL, -- CST number copied from inventory.
+    TicketNumber NVARCHAR(100) NULL, -- Ticket number copied from inventory.
+    SnNumber NVARCHAR(150) NULL, -- Device serial number copied from inventory.
+    DeviceType NVARCHAR(150) NULL, -- Device type copied from inventory.
+    WithAdapter NVARCHAR(20) NULL, -- Adapter flag copied from inventory.
+    WorkflowStatus NVARCHAR(100) NOT NULL CONSTRAINT DF_RepairDeviceRecords_WorkflowStatus DEFAULT ('Repair By'), -- Current repair workflow stage.
+    AssignedTo UNIQUEIDENTIFIER NULL, -- User id currently handling the repair task.
+    AssignedToEmail NVARCHAR(255) NULL, -- User email currently handling the repair task.
+    AssignedAt DATETIME2(0) NULL, -- Date/time when the task was claimed.
+    DeviceAlgorithm NVARCHAR(150) NULL, -- Device algorithm/version encoded during checking.
+    DevicePinwidth NVARCHAR(100) NULL, -- Current pinwidth encoded during checking.
+    PreviousPinwidth NVARCHAR(100) NULL, -- Previous pinwidth encoded during checking.
+    CheckingRemarks NVARCHAR(MAX) NULL, -- General checking remarks.
+    TestResults NVARCHAR(MAX) NOT NULL CONSTRAINT DF_RepairDeviceRecords_TestResults DEFAULT ('[]'), -- JSON checklist results.
+    RepairBy NVARCHAR(255) NULL, -- User/name who claimed the repair task.
+    TestBy NVARCHAR(255) NULL, -- User/name who completed testing.
+    SeniorTestBy NVARCHAR(255) NULL, -- User/name who completed senior/supervisor checking.
+    AdditionalComments NVARCHAR(MAX) NULL, -- Additional final comments.
+    CompletedAt DATETIME2(0) NULL, -- Date/time supervisor checking completed.
+    CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_RepairDeviceRecords_CreatedAt DEFAULT (SYSUTCDATETIME()), -- Date/time created.
+    UpdatedAt DATETIME2(0) NULL, -- Date/time last updated.
+    CONSTRAINT FK_RepairDeviceRecords_Inventory FOREIGN KEY (SourceInventoryId) REFERENCES dbo.DeviceInventoryItems(Id) ON DELETE CASCADE, -- Delete repair task when source inventory is deleted.
+    CONSTRAINT FK_RepairDeviceRecords_Clients FOREIGN KEY (ClientId) REFERENCES dbo.Clients(Id) ON DELETE SET NULL -- Keep repair task if client is removed.
+); -- End of RepairDeviceRecords table definition.
+
+-- Prevent duplicate repair workflow rows for one inventory record.
+CREATE UNIQUE INDEX UX_RepairDeviceRecords_SourceInventoryId
+ON dbo.RepairDeviceRecords (SourceInventoryId) -- Link one repair workflow row to one inventory row.
+WHERE SourceInventoryId IS NOT NULL; -- Allow manually imported historical rows with no source inventory id.
+
+-- Improve queue filtering by workflow status.
+CREATE INDEX IX_RepairDeviceRecords_WorkflowStatus
+ON dbo.RepairDeviceRecords (WorkflowStatus); -- Index workflow status for New and Done repair pages.
+
+-- Improve My Repair Device filtering by assigned user email.
+CREATE INDEX IX_RepairDeviceRecords_AssignedToEmail
+ON dbo.RepairDeviceRecords (AssignedToEmail); -- Index assigned email for the user's task list.
+
+-- Add Repair By to existing MSSQL repair workflow tables.
+IF COL_LENGTH('dbo.RepairDeviceRecords', 'RepairBy') IS NULL
+    ALTER TABLE dbo.RepairDeviceRecords ADD RepairBy NVARCHAR(255) NULL; -- Stores who clicked Get This Repair.
+
+-- Add Tested By to existing MSSQL repair workflow tables.
+IF COL_LENGTH('dbo.RepairDeviceRecords', 'TestBy') IS NULL
+    ALTER TABLE dbo.RepairDeviceRecords ADD TestBy NVARCHAR(255) NULL; -- Stores who completed the testing stage.
+
+-- Add Senior Tested By to existing MSSQL repair workflow tables.
+IF COL_LENGTH('dbo.RepairDeviceRecords', 'SeniorTestBy') IS NULL
+    ALTER TABLE dbo.RepairDeviceRecords ADD SeniorTestBy NVARCHAR(255) NULL; -- Stores who completed senior/supervisor checking.
 
 -- Create archive table for deleted records.
 CREATE TABLE dbo.ArchivedRecords (
@@ -206,6 +292,9 @@ SELECT Seed.Name, Seed.Color
 FROM (VALUES
     ('Completed', '#00d000'), -- Closed testing status.
     ('N/A', '#475569'), -- Closed testing status.
+    ('Ongoing Support', '#f59e0b'), -- Automatic inventory status when Start Repairing Support has a value.
+    ('Overdue Support', '#dc2626'), -- Automatic inventory status when support end date has passed and QA has not started.
+    ('Ongoing QA', '#2563eb'), -- Automatic inventory status when Start QA has a value.
     ('Ongoing Repair', '#fb923c'), -- Active repair status.
     ('Cancelled', '#dc2626'), -- Cancelled status.
     ('Deployed', '#00d000') -- Inventory deployed status.
@@ -306,6 +395,9 @@ DROP TABLE IF EXISTS dbo.AuditTrail;
 -- Drop archived records after audit trail.
 DROP TABLE IF EXISTS dbo.ArchivedRecords;
 
+-- Drop repair workflow records before inventory because they reference inventory rows.
+DROP TABLE IF EXISTS dbo.RepairDeviceRecords;
+
 -- Drop ongoing testing before lookup tables.
 DROP TABLE IF EXISTS dbo.OngoingTestingItems;
 
@@ -329,6 +421,8 @@ DROP TABLE IF EXISTS dbo.Clients;
 | 2026-06-09 | Rebuilt MSSQL guide as migration-ready documentation. | Mirrors the active Supabase schema and explains API migration steps. |
 | 2026-06-09 | Added fully commented MSSQL schema script. | Helps future migration without exposing MSSQL credentials in the frontend. |
 | 2026-06-09 | Added configurable device types. | Mirrors the Supabase `device_types` setup for future MSSQL migration. |
+| 2026-06-10 | Added automatic inventory workflow statuses. | Mirrors automatic Inventory Records status logic for future MSSQL migration. |
+| 2026-06-10 | Added Testing Device repair workflow. | Mirrors the new repair queue, assignment, checking, and completion process. |
 
 ## 8. Developer Notes
 
@@ -336,3 +430,5 @@ DROP TABLE IF EXISTS dbo.Clients;
 - MSSQL JSON fields are represented as `NVARCHAR(MAX)` in this guide.
 - Authentication must be replaced because Supabase Auth is tied to Supabase.
 - File upload must be replaced because Supabase Storage is tied to Supabase.
+- Inventory status is automatic and depends on support/QA dates, so keep the required status names seeded.
+- Testing Device workflow stages are `Repair By`, `Tested By`, `Senior Tested By`, and `Done Repair Device`.

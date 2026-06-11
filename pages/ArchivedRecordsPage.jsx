@@ -218,7 +218,7 @@ export default function ArchivedRecordsPage() {
             {displayedArchives.map((archive) => (
               <TableRow key={archive.id} hover>
                 <TableCell align="center">
-                  <Chip label={tableLabels[archive.source_table] || archive.record_type} size="small" sx={{ fontWeight: 800 }} />
+                  <Chip label={tableLabels[archive.source_table] || archive.record_type} size="small" sx={{ fontWeight: 400 }} />
                 </TableCell>
                 <TableCell align="center">{archive.record_label || "-"}</TableCell>
                 <TableCell>{formatArchiveDetails(archive.record_data)}</TableCell>

@@ -2,11 +2,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  MenuItem,
   Paper,
   Stack,
   Table,
@@ -19,49 +14,19 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Autocomplete,
-  IconButton,
 } from "@mui/material";
-import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
-import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
-import ArrowDropDownRoundedIcon from "@mui/icons-material/ArrowDropDownRounded";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { archiveRecord } from "../src/lib/archiveRecord.js";
-import { logAuditEvent } from "../src/lib/auditTrail.js";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../src/lib/supabase.js";
-
-const blankTest = {
-  clientId: "",
-  clientCode: "",
-  dateReceived: "",
-  packageStyle: "",
-  pictureUrl: "",
-  model: "",
-  withAdapter: "No",
-  serialNumber: "",
-  statusId: "",
-  repairBy: "",
-  testBy: "",
-  seniorTestBy: "",
-  remarks: "",
-};
-
-const packageStyles = ["With Box", "Plastic", "Paper Bag"];
-const adapterOptions = ["Yes", "No"];
 
 export default function OngoingTestingPage() {
   // Store testing rows in the same shape expected by the table and dialog.
   const [items, setItems] = useState([]);
-  // Store lookup records used by client and status selectors.
-  const [clients, setClients] = useState([]);
-  const [statuses, setStatuses] = useState([]);
+  // Store selected row id so the generated table can still highlight the row the user clicked.
   const [selectedId, setSelectedId] = useState(null);
-  const [dialogMode, setDialogMode] = useState(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [uploadingId, setUploadingId] = useState(null);
@@ -74,64 +39,49 @@ export default function OngoingTestingPage() {
     receivedTo: "",
   });
 
-  const selectedItem = useMemo(
-    () => items.find((item) => item.id === selectedId) || null,
-    [items, selectedId]
-  );
-
   useEffect(() => {
     let ignore = false;
 
     async function loadTests() {
       setIsLoading(true);
       // Load testing records with joined client/status labels to avoid separate per-row requests.
-      const [testsResult, statusesResult, clientsResult] = await Promise.all([
-        supabase
-          .from("ongoing_testing_items")
-          .select(`
-            id,
-            client_id,
-            date_received,
-            package_style,
-            picture_url,
-            model,
-            with_adapter,
-            serial_number,
-            status_id,
-            repair_by,
-            test_by,
-            senior_test_by,
-            remarks,
-            clients ( id, name, client_code ),
-            statuses ( id, name, color )
-          `)
-          .order("date_received", { ascending: false }),
-        supabase
-          .from("statuses")
-          .select("id, name, color, is_active")
-          .eq("is_active", true)
-          .order("name", { ascending: true }),
-        supabase
-          .from("clients")
-          .select("id, name, client_code, is_active")
-          .eq("is_active", true)
-          .order("name", { ascending: true }),
-      ]);
+      const testsResult = await supabase
+        .from("ongoing_testing_items")
+        .select(`
+          id,
+          client_id,
+          date_received,
+          package_style,
+          picture_url,
+          model,
+          with_adapter,
+          serial_number,
+          start_repairing_support,
+          end_date_support,
+          start_qa,
+          end_date_qa,
+          status_id,
+          repair_by,
+          test_by,
+          senior_test_by,
+          remarks,
+          clients ( id, name, client_code ),
+          statuses ( id, name, color )
+        `)
+        .order("date_received", { ascending: false });
 
       if (ignore) {
         return;
       }
 
-      if (testsResult.error || statusesResult.error || clientsResult.error) {
-        setError(testsResult.error?.message || statusesResult.error?.message || clientsResult.error?.message);
+      if (testsResult.error) {
+        setError(testsResult.error.message);
         setIsLoading(false);
         return;
       }
 
       const mappedItems = (testsResult.data || []).map(mapTestFromDb);
       setItems(mappedItems);
-      setStatuses(statusesResult.data || []);
-      setClients(clientsResult.data || []);
       setSelectedId(mappedItems[0]?.id || null);
       setIsLoading(false);
     }
@@ -156,191 +106,6 @@ export default function OngoingTestingPage() {
       }),
     [filters, items]
   );
-
-  const handleSave = async (form) => {
-    // Convert dialog state into Supabase column names before insert/update.
-    const payload = mapTestToDb(form);
-
-    if (dialogMode === "new") {
-      // Create a testing record before deciding whether it should move to inventory.
-      const { data, error: insertError } = await supabase
-        .from("ongoing_testing_items")
-        .insert(payload)
-        .select("*, clients ( id, name, client_code ), statuses ( id, name, color )")
-        .single();
-
-      if (insertError) {
-        setError(insertError.message);
-        return;
-      }
-
-      const nextItem = mapTestFromDb(data);
-      await logAuditEvent({
-        action: "CREATE",
-        afterData: payload,
-        entityId: nextItem.id,
-        entityTable: "ongoing_testing_items",
-        module: "Ongoing Testing",
-        recordLabel: getTestLabel(nextItem),
-        summary: `Created ongoing testing record for ${getTestLabel(nextItem)}.`,
-      });
-      if (isClosedStatus(nextItem.status?.name)) {
-        await transferToInventory(nextItem);
-        setDialogMode(null);
-        return;
-      }
-
-      setItems((current) => [nextItem, ...current]);
-      setSelectedId(nextItem.id);
-      setDialogMode(null);
-      return;
-    }
-
-    const { data, error: updateError } = await supabase
-      .from("ongoing_testing_items")
-      .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq("id", selectedId)
-      .select("*, clients ( id, name, client_code ), statuses ( id, name, color )")
-      .single();
-
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-
-    const updatedItem = mapTestFromDb(data);
-    const newStatus = updatedItem.status?.name;
-    await logAuditEvent({
-      action: "UPDATE",
-      afterData: payload,
-      beforeData: selectedItem ? mapTestToDb(selectedItem) : null,
-      entityId: updatedItem.id,
-      entityTable: "ongoing_testing_items",
-      module: "Ongoing Testing",
-      recordLabel: getTestLabel(updatedItem),
-      summary: `Updated ongoing testing record for ${getTestLabel(updatedItem)}.`,
-    });
-
-    if (isClosedStatus(newStatus)) {
-      // Closed statuses automatically move the record from Ongoing Testing to Inventory Records.
-      const transferred = await transferToInventory(updatedItem);
-      if (transferred) {
-        setDialogMode(null);
-        return;
-      }
-    }
-
-    setItems((current) => current.map((item) => (item.id === selectedId ? updatedItem : item)));
-    setDialogMode(null);
-  };
-
-  const transferToInventory = async (testItem) => {
-    try {
-      // Create a device inventory item using only fields that exist in inventory records.
-      const inventoryPayload = {
-        company: testItem.clientName || testItem.repairBy || "",
-        client_id: testItem.clientId || null,
-        raised_by: "",
-        date_received: testItem.dateReceived,
-        package_style: testItem.packageStyle,
-        cst_number: "",
-        ticket_number: "",
-        sn_number: testItem.serialNumber,
-        device_type: testItem.model,
-        with_adapter: testItem.withAdapter,
-        status_id: testItem.statusId,
-        remarks: testItem.remarks,
-        give_to: null,
-      };
-
-      const { data: insertedInventory, error: insertError } = await supabase
-        .from("device_inventory_items")
-        .insert(inventoryPayload)
-        .select()
-        .single();
-
-      if (insertError) {
-        setError(`Failed to transfer to inventory: ${insertError.message}`);
-        return false;
-      }
-
-      await logAuditEvent({
-        action: "TRANSFER_TO_INVENTORY",
-        afterData: inventoryPayload,
-        beforeData: mapTestToDb(testItem),
-        entityId: insertedInventory?.id || testItem.id,
-        entityTable: "device_inventory_items",
-        metadata: { sourceTestingId: testItem.id },
-        module: "Device Inventory",
-        recordLabel: getTestLabel(testItem),
-        summary: `Moved ${getTestLabel(testItem)} from Ongoing Testing to Inventory Records.`,
-      });
-
-      // Delete the testing row only after the inventory insert succeeds.
-      const { error: deleteError } = await supabase
-        .from("ongoing_testing_items")
-        .delete()
-        .eq("id", testItem.id);
-
-      if (deleteError) {
-        setError(`Failed to delete from ongoing testing: ${deleteError.message}`);
-        return false;
-      }
-
-      setItems((current) => current.filter((item) => item.id !== testItem.id));
-      setSelectedId(items.find((item) => item.id !== testItem.id)?.id || null);
-      return true;
-    } catch (err) {
-      setError(`Transfer error: ${err.message}`);
-      return false;
-    }
-  };
-
-  const handleDelete = async (itemId = selectedId) => {
-    if (!itemId) {
-      return;
-    }
-
-    const itemToDelete = items.find((item) => item.id === itemId);
-    if (!itemToDelete) {
-      return;
-    }
-
-    // Archive first so deleted testing records remain restorable.
-    const { error: archiveError } = await archiveRecord({
-      recordData: mapTestToDb(itemToDelete),
-      recordLabel: itemToDelete.serialNumber || itemToDelete.model || itemToDelete.clientCode,
-      recordType: "Ongoing Testing",
-      sourceTable: "ongoing_testing_items",
-    });
-
-    if (archiveError) {
-      setError(`Failed to archive record: ${archiveError.message}`);
-      return;
-    }
-
-    const { error: deleteError } = await supabase
-      .from("ongoing_testing_items")
-      .delete()
-      .eq("id", itemId);
-
-    if (deleteError) {
-      setError(deleteError.message);
-      return;
-    }
-
-    await logAuditEvent({
-      action: "ARCHIVE",
-      beforeData: mapTestToDb(itemToDelete),
-      entityId: itemToDelete.id,
-      entityTable: "ongoing_testing_items",
-      module: "Ongoing Testing",
-      recordLabel: getTestLabel(itemToDelete),
-      summary: `Archived ongoing testing record for ${getTestLabel(itemToDelete)}.`,
-    });
-    setItems((current) => current.filter((item) => item.id !== itemId));
-    setSelectedId(items.find((item) => item.id !== itemId)?.id || null);
-  };
 
   const handleImageUploadForItem = async (itemId, file) => {
     if (!file) return;
@@ -458,18 +223,6 @@ export default function OngoingTestingPage() {
             </Typography>
           </Box>
         </Stack>
-
-        <Stack direction="row" spacing={1}>
-          <Button
-            size="small"
-            startIcon={<AddRoundedIcon />}
-            onClick={() => setDialogMode("new")}
-            variant="contained"
-            sx={{ textTransform: "none", fontWeight: 600 }}
-          >
-            Add Test Record
-          </Button>
-        </Stack>
       </Stack>
 
       <Paper elevation={0} sx={{ mb: 2, p: 1.5, border: "1px solid #dde5ef", borderRadius: 2 }}>
@@ -569,23 +322,20 @@ export default function OngoingTestingPage() {
                 Repair By
               </TableCell>
               <TableCell sx={{ fontWeight: 700, width: "8%" }} align="center">
-                Test By
+                Tested By
               </TableCell>
               <TableCell sx={{ fontWeight: 700, width: "8%" }} align="center">
-                Senior Test By
+                Senior Tested By
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: "18%" }} align="center">
+              <TableCell sx={{ fontWeight: 700, width: "24%" }} align="center">
                 Remarks
-              </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: "6%" }} align="center">
-                Actions
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {displayedItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} sx={{ textAlign: "center", py: 4 }}>
+                <TableCell colSpan={12} sx={{ textAlign: "center", py: 4 }}>
                   <Typography color="text.secondary">No test records found</Typography>
                 </TableCell>
               </TableRow>
@@ -594,15 +344,7 @@ export default function OngoingTestingPage() {
                 <TableRow
                   key={item.id}
                   onClick={() => setSelectedId(item.id)}
-                  onDoubleClick={() => {
-                    setSelectedId(item.id);
-                    setDialogMode("edit");
-                  }}
-                  sx={{
-                    bgcolor: selectedId === item.id ? "#e8f2ff" : "transparent",
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "#f3f4f6" },
-                  }}
+                  sx={getTestingRowSx(item, selectedId === item.id)}
                 >
                   <TruncatedCell align="center">{item.clientCode || "-"}</TruncatedCell>
                   <TruncatedCell align="center">{item.dateReceived}</TruncatedCell>
@@ -648,7 +390,7 @@ export default function OngoingTestingPage() {
                         sx={{
                           bgcolor: item.status.color || "#6b7280",
                           color: "#ffffff",
-                          fontWeight: 600,
+                          fontWeight: 400,
                           maxWidth: "100%",
                           "& .MuiChip-label": {
                             overflow: "hidden",
@@ -664,45 +406,6 @@ export default function OngoingTestingPage() {
                   <TruncatedCell align="center">{item.testBy}</TruncatedCell>
                   <TruncatedCell align="center">{item.seniorTestBy}</TruncatedCell>
                   <TruncatedCell>{item.remarks}</TruncatedCell>
-                  <TableCell align="center" sx={{ height: 38, p: 0, position: "relative", whiteSpace: "nowrap" }}>
-                    <Stack
-                      direction="row"
-                      spacing={0.25}
-                      alignItems="center"
-                      justifyContent="center"
-                      flexWrap="nowrap"
-                      sx={{
-                        left: "50%",
-                        position: "absolute",
-                        top: "50%",
-                        transform: "translate(-50%, -50%)",
-                      }}
-                    >
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedId(item.id);
-                          setDialogMode("edit");
-                        }}
-                        sx={{ p: 0.5 }}
-                      >
-                        <EditRoundedIcon sx={{ fontSize: 17 }} />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedId(item.id);
-                          handleDelete(item.id);
-                        }}
-                        color="error"
-                        sx={{ p: 0.5 }}
-                      >
-                        <DeleteRoundedIcon sx={{ fontSize: 17 }} />
-                      </IconButton>
-                    </Stack>
-                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -768,272 +471,7 @@ export default function OngoingTestingPage() {
         </Paper>
       )} */}
 
-      <DeviceTestDialog
-        mode={dialogMode}
-        onClose={() => setDialogMode(null)}
-        onSave={handleSave}
-        item={selectedItem}
-        clients={clients}
-        statuses={statuses}
-      />
     </Box>
-  );
-}
-
-function DeviceTestDialog({ clients, mode, onClose, onSave, item, statuses }) {
-  const [form, setForm] = useState(blankTest);
-  const [clientSelectOpen, setClientSelectOpen] = useState(false);
-  const initializedRef = useRef(false);
-
-  useEffect(() => {
-    if (mode === "edit" && item && !initializedRef.current) {
-      initializedRef.current = true;
-      setForm({
-        clientId: item.clientId || "",
-        clientCode: item.clientCode || "",
-        dateReceived: item.dateReceived || "",
-        packageStyle: item.packageStyle || "",
-        pictureUrl: item.pictureUrl || "",
-        model: item.model || "",
-        withAdapter: item.withAdapter || "No",
-        serialNumber: item.serialNumber || "",
-        statusId: item.statusId || "",
-        repairBy: item.repairBy || "",
-        testBy: item.testBy || "",
-        seniorTestBy: item.seniorTestBy || "",
-        remarks: item.remarks || "",
-      });
-    } else if (mode === "new" && !initializedRef.current) {
-      initializedRef.current = true;
-      setForm(blankTest);
-    }
-
-    return () => {
-      initializedRef.current = false;
-    };
-  }, [mode, item]);
-
-  const handleChange = (field) => (event) => {
-    setForm((current) => ({ ...current, [field]: event.target.value }));
-  };
-  const isEditMode = mode === "edit";
-  const dialogFieldSx = {
-    "& .MuiInputLabel-root": {
-      bgcolor: "#ffffff",
-      px: 0.5,
-    },
-  };
-  const lockedFieldSx = isEditMode
-    ? {
-        ...dialogFieldSx,
-        "& .MuiInputBase-root.Mui-disabled": {
-          bgcolor: "#f3f4f6",
-        },
-        "& .MuiInputBase-input.Mui-disabled": {
-          WebkitTextFillColor: "#6b7280",
-        },
-        "& .MuiInputLabel-root.Mui-disabled": {
-          color: "#6b7280",
-        },
-      }
-    : {};
-
-  if (!mode) {
-    return null;
-  }
-
-  return (
-    <Dialog open={true} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 700 }}>
-        {mode === "new" ? "Add Test Record" : "Edit Test Record"}
-      </DialogTitle>
-      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 3.5 }}>
-        {isEditMode ? (
-          <TextField
-            label="Client Code"
-            value={form.clientCode || ""}
-            fullWidth
-            disabled
-            slotProps={{ inputLabel: { shrink: true } }}
-            sx={{ mt: 1.5, ...lockedFieldSx }}
-          />
-        ) : (
-          <Autocomplete
-            sx={{ mt: 1.5 }}
-            forcePopupIcon
-            open={clientSelectOpen}
-            onOpen={() => setClientSelectOpen(true)}
-            onClose={() => setClientSelectOpen(false)}
-            openOnFocus
-            popupIcon={<ArrowDropDownRoundedIcon />}
-            value={clients.find((client) => String(client.id) === String(form.clientId)) || null}
-            onChange={(_, selectedClient) => {
-              setForm((current) => ({
-                ...current,
-                clientId: selectedClient?.id || "",
-                clientCode: selectedClient?.client_code || "",
-              }));
-            }}
-            options={clients}
-            noOptionsText="No active clients found"
-            getOptionLabel={(option) => option?.client_code || ""}
-            filterOptions={(options, state) => {
-              const search = state.inputValue.trim().toLowerCase();
-              return options
-                .filter((client) => {
-                  const clientName = String(client.name || "").toLowerCase();
-                  const clientCode = String(client.client_code || "").toLowerCase();
-                  return !search || clientName.includes(search) || clientCode.includes(search);
-                })
-                .sort((first, second) => first.name.localeCompare(second.name))
-                .slice(0, 10);
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Client Code"
-                placeholder="Select or type client code"
-                fullWidth
-                slotProps={{
-                  ...params.slotProps,
-                  inputLabel: {
-                    ...params.slotProps?.inputLabel,
-                    shrink: true,
-                  },
-                }}
-                sx={{
-                  ...dialogFieldSx,
-                  "& .MuiOutlinedInput-root": {
-                    height: 54,
-                    minHeight: 54,
-                    py: "0 !important",
-                  },
-                  "& .MuiAutocomplete-input": {
-                    py: "0 !important",
-                  },
-                  "& .MuiAutocomplete-endAdornment": {
-                    right: 9,
-                  },
-                  "& .MuiAutocomplete-popupIndicator": {
-                    color: "#6b7280",
-                    display: "inline-flex",
-                    visibility: "visible",
-                  },
-                }}
-              />
-            )}
-          />
-        )}
-        <TextField
-          label="Date Received"
-          type="date"
-          value={form.dateReceived}
-          onChange={handleChange("dateReceived")}
-          disabled={isEditMode}
-          slotProps={{ inputLabel: { shrink: true } }}
-          fullWidth
-          sx={{ mt: 1.5, ...(isEditMode ? lockedFieldSx : dialogFieldSx) }}
-        />
-        <TextField
-          select
-          label="Package Style"
-          value={form.packageStyle}
-          onChange={handleChange("packageStyle")}
-          disabled={isEditMode}
-          fullWidth
-          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
-        >
-          {packageStyles.map((style) => (
-            <MenuItem key={style} value={style}>
-              {style}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          label="Model"
-          value={form.model}
-          onChange={handleChange("model")}
-          disabled={isEditMode}
-          fullWidth
-          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
-        />
-        <TextField
-          select
-          label="With Adapter"
-          value={form.withAdapter}
-          onChange={handleChange("withAdapter")}
-          disabled={isEditMode}
-          fullWidth
-          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
-        >
-          {adapterOptions.map((option) => (
-            <MenuItem key={option} value={option}>
-              {option}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          label="Serial Number"
-          value={form.serialNumber}
-          onChange={handleChange("serialNumber")}
-          disabled={isEditMode}
-          fullWidth
-          sx={isEditMode ? lockedFieldSx : dialogFieldSx}
-        />
-        <TextField
-          select
-          label="Status"
-          value={form.statusId}
-          onChange={handleChange("statusId")}
-          fullWidth
-          sx={dialogFieldSx}
-        >
-          {statuses.map((status) => (
-            <MenuItem key={status.id} value={status.id}>
-              {status.name}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          label="Repair By"
-          value={form.repairBy}
-          onChange={handleChange("repairBy")}
-          fullWidth
-          sx={dialogFieldSx}
-        />
-        <TextField
-          label="Test By"
-          value={form.testBy}
-          onChange={handleChange("testBy")}
-          fullWidth
-          align="center"
-          sx={dialogFieldSx}
-        />
-        <TextField
-          label="Senior Test By"
-          value={form.seniorTestBy}
-          onChange={handleChange("seniorTestBy")}
-          fullWidth
-          sx={dialogFieldSx}
-        />
-        <TextField
-          label="Remarks"
-          value={form.remarks}
-          onChange={handleChange("remarks")}
-          multiline
-          rows={3}
-          fullWidth
-          align="center"
-          sx={dialogFieldSx}
-        />
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={() => onSave(form)} variant="contained">
-          Save
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 }
 
@@ -1052,6 +490,10 @@ function mapTestFromDb(dbItem) {
     model: dbItem.model || "",
     withAdapter: dbItem.with_adapter || "No",
     serialNumber: dbItem.serial_number || "",
+    startRepairingSupport: dbItem.start_repairing_support || "",
+    endDateSupport: dbItem.end_date_support || "",
+    startQa: dbItem.start_qa || "",
+    endDateQa: dbItem.end_date_qa || "",
     statusId: dbItem.status_id || "",
     repairBy: dbItem.repair_by || "",
     testBy: dbItem.test_by || "",
@@ -1059,28 +501,6 @@ function mapTestFromDb(dbItem) {
     remarks: dbItem.remarks || "",
     status: dbItem.statuses || null,
   };
-}
-
-function mapTestToDb(form) {
-  return {
-    // Normalize React form state back into Supabase column names.
-    client_id: form.clientId || null,
-    date_received: form.dateReceived || null,
-    package_style: form.packageStyle || null,
-    model: form.model || null,
-    with_adapter: form.withAdapter || "No",
-    picture_url: form.pictureUrl || null,
-    serial_number: form.serialNumber || null,
-    status_id: form.statusId || null,
-    repair_by: form.repairBy || null,
-    test_by: form.testBy || null,
-    senior_test_by: form.seniorTestBy || null,
-    remarks: form.remarks || null,
-  };
-}
-
-function getTestLabel(item) {
-  return item?.serialNumber || item?.model || item?.clientCode || "Untitled record";
 }
 
 function isInsideRange(date, from, to) {
@@ -1094,7 +514,68 @@ function PackageChip({ value }) {
   if (!value) return <>-</>;
   const color = value === "Box" || value === "With Box" ? "#d9f2c7" : value === "Plastic" ? "#bfe3ff" : "#ffe49a";
   const textColor = value === "Plastic" ? "#075985" : value === "Paper Bag" ? "#92400e" : "#047857";
-  return <Chip label={value} size="small" sx={{ bgcolor: color, color: textColor, fontWeight: 800, minWidth: 72 }} />;
+  return <Chip label={value} size="small" sx={{ bgcolor: color, color: textColor, fontWeight: 400, minWidth: 72 }} />;
+}
+
+function getLocalDateString() {
+  // Build today's date from the browser's local calendar so due-date colors match the user's day.
+  const today = new Date();
+  // Use the current full year as the yyyy part of the ISO date.
+  const year = today.getFullYear();
+  // Pad month because JavaScript months are zero-based and ISO strings need two digits.
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  // Pad day so string comparison remains safe for yyyy-mm-dd dates.
+  const day = String(today.getDate()).padStart(2, "0");
+  // Return a date-only value that can be compared with Supabase date columns.
+  return `${year}-${month}-${day}`;
+}
+
+function getDaysUntilDate(dateValue) {
+  // Without an end support date there is no countdown, so return null.
+  if (!dateValue) return null;
+  // Parse today's local date at midnight for stable calendar-day math.
+  const today = new Date(`${getLocalDateString()}T00:00:00`);
+  // Parse the support end date at midnight so time zones do not shift the day.
+  const targetDate = new Date(`${dateValue}T00:00:00`);
+  // Convert milliseconds into whole calendar days.
+  return Math.round((targetDate - today) / 86400000);
+}
+
+function getTestingRowSx(item, isSelected) {
+  // Normalize the status label so configured capitalization does not affect color rules.
+  const statusName = String(item.status?.name || "").trim().toLowerCase();
+  // Calculate how many days are left before the support end date passes.
+  const daysUntilEnd = getDaysUntilDate(item.endDateSupport);
+  // Red means support is already overdue or the automatic status says overdue.
+  const isOverdue = statusName === "overdue support" || (item.endDateSupport && item.endDateSupport < getLocalDateString());
+  // Orange means Ongoing Support has three or fewer days left before becoming overdue.
+  const isNearDue = statusName === "ongoing support" && daysUntilEnd !== null && daysUntilEnd >= 0 && daysUntilEnd <= 3;
+  // Green means Ongoing Support is active and not yet inside the three-day warning window.
+  const isHealthySupport = statusName === "ongoing support" && !isOverdue && !isNearDue;
+  // Pick a soft row color so status is obvious without hurting readability.
+  const baseColor = isOverdue
+    ? "#fee2e2"
+    : isNearDue
+      ? "#ffedd5"
+      : isHealthySupport
+        ? "#dcfce7"
+        : isSelected
+          ? "#e8f2ff"
+          : "transparent";
+  // Pick a slightly stronger hover color for the same row state.
+  const hoverColor = isOverdue
+    ? "#fecaca"
+    : isNearDue
+      ? "#fed7aa"
+      : isHealthySupport
+        ? "#bbf7d0"
+        : "#f3f4f6";
+  // Return a reusable MUI sx object for every generated testing row.
+  return {
+    bgcolor: baseColor,
+    cursor: "default",
+    "&:hover": { bgcolor: hoverColor },
+  };
 }
 
 function TruncatedCell({ align = "left", children }) {
@@ -1121,7 +602,3 @@ function TruncatedCell({ align = "left", children }) {
   );
 }
 
-const isClosedStatus = (statusName) => {
-  const normalized = String(statusName || "").trim().toLowerCase();
-  return normalized === "completed" || normalized === "complete" || normalized === "n/a";
-};

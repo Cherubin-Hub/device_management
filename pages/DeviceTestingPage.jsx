@@ -190,9 +190,9 @@ export default function DeviceTestingPage() {
       startY: doc.lastAutoTable.finalY + 8,
       head: [["Approval", ""]],
       body: [
-        ["Tested By", valueOrBlank(approval.testedBy)],
-        ["Checked By (Senior)", valueOrBlank(approval.checkedBySenior)],
-        ["Checked By (Supervisor)", valueOrBlank(approval.checkedBySupervisor)],
+        ["Repair By", valueOrBlank(approval.testedBy)],
+        ["Tested By", valueOrBlank(approval.checkedBySenior)],
+        ["Senior Tested By", valueOrBlank(approval.checkedBySupervisor)],
         ["Additional Comments", valueOrBlank(approval.additionalComments)],
       ],
       theme: "grid",
@@ -222,8 +222,8 @@ export default function DeviceTestingPage() {
       component="main"
       sx={{
         minHeight: "100svh",
-        bgcolor: "#f6f8fb",
-        color: "#172033",
+        bgcolor: "background.default",
+        color: "text.primary",
         px: { xs: 2, md: 4 },
         py: { xs: 2.5, md: 4 },
         textAlign: "left",

@@ -180,8 +180,22 @@ export default function DeviceManagementPage() {
   );
 
   const handleSave = async (form) => {
+    // Derive inventory status from date fields so users do not manually choose workflow status.
+    const automaticStatusName = getAutomaticInventoryStatusName(form);
+    // Look up the automatic status from Configurations to keep status values centrally managed.
+    const automaticStatus = findStatusByName(statuses, automaticStatusName);
+    if (!automaticStatus) {
+      setError(`Please add "${automaticStatusName}" in Configurations > Status before saving this inventory record.`);
+      return;
+    }
+    const formWithAutomaticStatus = {
+      ...form,
+      statusId: automaticStatus.id,
+      statusName: automaticStatus.name,
+      statusColor: automaticStatus.color,
+    };
     // Convert UI field names into database column names before saving.
-    const payload = mapDeviceToDb(form);
+    const payload = mapDeviceToDb(formWithAutomaticStatus);
 
     if (dialogMode === "new") {
       // Insert newly encoded inventory record into Supabase.
@@ -197,6 +211,21 @@ export default function DeviceManagementPage() {
       }
 
       const nextItem = mapDeviceFromDb(data);
+      // Mirror the new inventory record into Ongoing Testing so that page becomes a generated workflow view.
+      const syncError = await syncOngoingTestingFromInventory(nextItem);
+      // Mirror the new inventory record into Testing Device so repair tasks appear in New Repair Device.
+      const repairSyncError = await syncRepairDeviceFromInventory(nextItem);
+      // Keep the saved inventory row visible even if the generated testing sync fails.
+      setItems((current) => [nextItem, ...current]);
+      // Select the saved row so the user can immediately see which inventory record was created.
+      setSelectedId(nextItem.id);
+      // Close the dialog after the inventory save to avoid duplicate inserts on another Save click.
+      setDialogMode(null);
+      // Show the sync problem after the inventory row is safely saved.
+      if (syncError || repairSyncError) {
+        setError([syncError, repairSyncError].filter(Boolean).join(" "));
+        return;
+      }
       await logAuditEvent({
         action: "CREATE",
         afterData: payload,
@@ -206,9 +235,6 @@ export default function DeviceManagementPage() {
         recordLabel: getDeviceLabel(nextItem),
         summary: `Created inventory record for ${getDeviceLabel(nextItem)}.`,
       });
-      setItems((current) => [nextItem, ...current]);
-      setSelectedId(nextItem.id);
-      setDialogMode(null);
       return;
     }
 
@@ -226,8 +252,19 @@ export default function DeviceManagementPage() {
     }
 
     const updatedItem = mapDeviceFromDb(data);
-    const oldStatus = selectedItem?.statusName;
-    const newStatus = updatedItem.statusName;
+    // Keep the generated Ongoing Testing row aligned whenever inventory dates or status change.
+    const syncError = await syncOngoingTestingFromInventory(updatedItem);
+    // Keep the generated Testing Device row aligned whenever inventory identifying details change.
+    const repairSyncError = await syncRepairDeviceFromInventory(updatedItem);
+    // Keep the edited inventory row visible even if the generated testing sync fails.
+    setItems((current) => current.map((item) => (item.id === selectedId ? updatedItem : item)));
+    // Close the dialog after the inventory update to avoid repeated saves against the same edit.
+    setDialogMode(null);
+    // Show the sync problem after the inventory row is safely updated.
+    if (syncError || repairSyncError) {
+      setError([syncError, repairSyncError].filter(Boolean).join(" "));
+      return;
+    }
     await logAuditEvent({
       action: "UPDATE",
       afterData: payload,
@@ -239,29 +276,6 @@ export default function DeviceManagementPage() {
       summary: `Updated inventory record for ${getDeviceLabel(updatedItem)}.`,
     });
 
-    if (isClosedStatus(oldStatus) && !isClosedStatus(newStatus)) {
-      // Moving from a closed status back to an active status returns the record to Ongoing Testing.
-      const transferred = await transferBackToOngoingTesting(updatedItem);
-      if (transferred) {
-        const { error: deleteError } = await supabase
-          .from("device_inventory_items")
-          .delete()
-          .eq("id", selectedId);
-
-        if (deleteError) {
-          setError(`Transferred back, but failed to remove from inventory: ${deleteError.message}`);
-          return;
-        }
-
-        setItems((current) => current.filter((item) => item.id !== selectedId));
-        setSelectedId(items.find((item) => item.id !== selectedId)?.id || null);
-        setDialogMode(null);
-        return;
-      }
-    }
-
-    setItems((current) => current.map((item) => (item.id === selectedId ? updatedItem : item)));
-    setDialogMode(null);
   };
 
   const handleDelete = async () => {
@@ -311,51 +325,6 @@ export default function DeviceManagementPage() {
 
   const handleExport = () => {
     exportExcel(displayedItems, statuses);
-  };
-
-  const transferBackToOngoingTesting = async (inventoryItem) => {
-    try {
-      // Build the ongoing testing payload from the inventory fields that also exist in testing.
-      const ongoingPayload = {
-        client_id: inventoryItem.clientId || null,
-        date_received: inventoryItem.dateReceived,
-        package_style: inventoryItem.packageStyle,
-        model: inventoryItem.deviceType,
-        with_adapter: inventoryItem.withAdapter,
-        serial_number: inventoryItem.snNumber,
-        status_id: inventoryItem.statusId,
-        repair_by: null,
-        remarks: inventoryItem.remarks,
-        source_inventory_id: inventoryItem.id,
-      };
-
-      const { data: insertedOngoing, error: insertError } = await supabase
-        .from("ongoing_testing_items")
-        .insert(ongoingPayload)
-        .select()
-        .single();
-
-      if (insertError) {
-        setError(`Failed to transfer back to ongoing testing: ${insertError.message}`);
-        return false;
-      }
-
-      await logAuditEvent({
-        action: "TRANSFER_TO_ONGOING_TESTING",
-        afterData: ongoingPayload,
-        beforeData: mapDeviceToDb(inventoryItem),
-        entityId: insertedOngoing?.id || inventoryItem.id,
-        entityTable: "ongoing_testing_items",
-        metadata: { sourceInventoryId: inventoryItem.id },
-        module: "Device Inventory",
-        recordLabel: getDeviceLabel(inventoryItem),
-        summary: `Moved ${getDeviceLabel(inventoryItem)} from Inventory Records back to Ongoing Testing.`,
-      });
-      return true;
-    } catch (err) {
-      setError(`Transfer error: ${err.message}`);
-      return false;
-    }
   };
 
   return (
@@ -545,7 +514,7 @@ export default function DeviceManagementPage() {
                     <TableCell align="center">{formatDisplayDate(item.startQa)}</TableCell>
                     <TableCell align="center">{formatDisplayDate(item.endDateQa)}</TableCell>
                     <TableCell align="center">
-                      <Chip label={status?.name || item.statusName || "-"} size="small" sx={{ bgcolor: `${status?.color || item.statusColor || "#64748b"}22`, color: status?.color || item.statusColor || "#475569", fontWeight: 900 }} />
+                      <Chip label={status?.name || item.statusName || "-"} size="small" sx={{ bgcolor: `${status?.color || item.statusColor || "#64748b"}22`, color: status?.color || item.statusColor || "#475569", fontWeight: 400 }} />
                     </TableCell>
                     <TableCell align="center">{formatDisplayDate(item.dateDelivered)}</TableCell>
                     <TableCell align="center">{item.giveTo || "-"}</TableCell>
@@ -565,7 +534,7 @@ export default function DeviceManagementPage() {
           key={`${dialogMode}-${selectedId || "new"}`}
           clients={clients}
           deviceTypes={deviceTypes}
-          initialValue={dialogMode === "edit" ? selectedItem : { ...blankDevice, statusId: "" }}
+          initialValue={dialogMode === "edit" ? selectedItem : { ...blankDevice, statusId: findStatusByName(statuses, "N/A")?.id || "" }}
           onClose={() => setDialogMode(null)}
           onSave={handleSave}
           open
@@ -595,6 +564,10 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
   };
   // Require client code, serial number, and device type before allowing a new inventory record to save.
   const canSave = Boolean(form.clientId && form.clientCode && form.snNumber.trim() && form.deviceType.trim());
+  // Show the automatic status in the disabled Status field while the user edits date fields.
+  const automaticStatusName = getAutomaticInventoryStatusName(form);
+  const automaticStatus = findStatusByName(statuses, automaticStatusName);
+  const statusDisplayValue = automaticStatus?.name || automaticStatusName;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -604,10 +577,11 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
           <TextField
             label="Company"
             value={form.company}
+            disabled
             InputProps={{ readOnly: true }}
             sx={{
-              "& .MuiInputBase-root": { bgcolor: "#f3f4f6" },
-              "& .MuiInputBase-input": { color: "#6b7280" },
+              "& .MuiInputBase-root": { bgcolor: "action.disabledBackground" },
+              "& .MuiInputBase-input": { color: "text.secondary" },
             }}
           />
           <TextField select required label="Client Code" value={form.clientId || ""} onChange={updateClient}>
@@ -637,7 +611,17 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
           <TextField label="End Date Support" type="date" value={form.endDateSupport} onChange={updateField("endDateSupport")} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField label="Start QA" type="date" value={form.startQa} onChange={updateField("startQa")} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField label="End Date QA" type="date" value={form.endDateQa} onChange={updateField("endDateQa")} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField select label="Status" value={form.statusId} onChange={updateField("statusId")}>{statuses.map((status) => <MenuItem key={status.id} value={status.id}>{status.name}</MenuItem>)}</TextField>
+          <TextField
+            label="Status"
+            value={statusDisplayValue}
+            disabled
+            fullWidth
+            helperText={automaticStatus ? "Automatic status" : `Add "${automaticStatusName}" in Configurations > Status`}
+            sx={{
+              "& .MuiInputBase-root": { bgcolor: "action.disabledBackground" },
+              "& .MuiInputBase-input": { color: "text.secondary" },
+            }}
+          />
           <TextField label="Date Delivered" type="date" value={form.dateDelivered} onChange={updateField("dateDelivered")} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField label="Give to" value={form.giveTo} onChange={updateField("giveTo")} />
           <TextField label="Remarks" multiline minRows={4} value={form.remarks} onChange={updateField("remarks")} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
@@ -654,7 +638,7 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
 function PackageChip({ value }) {
   if (!value) return <>-</>;
   const color = value === "With Box" ? "#bae6fd" : value === "Plastic" ? "#fde68a" : "#fecaca";
-  return <Chip label={value} size="small" sx={{ bgcolor: color, fontWeight: 800 }} />;
+  return <Chip label={value} size="small" sx={{ bgcolor: color, fontWeight: 400 }} />;
 }
 
 const isInsideRange = (value, from, to) => {
@@ -715,8 +699,165 @@ const mapDeviceToDb = (item) => ({
   remarks: item.remarks || null,
 });
 
+const mapInventoryToOngoingDb = (item) => ({
+  // Copy only fields that belong to the Ongoing Testing table.
+  client_id: item.clientId || null,
+  // Keep the received date aligned with the inventory record.
+  date_received: item.dateReceived || null,
+  // Carry the package style so the generated testing row matches the inventory intake data.
+  package_style: item.packageStyle || null,
+  // Store the inventory device type as the testing model.
+  model: item.deviceType || null,
+  // Preserve adapter information from the inventory record.
+  with_adapter: item.withAdapter || "No",
+  // Preserve the serial number for tracking and matching.
+  serial_number: item.snNumber || null,
+  // Use the automatic inventory status for the generated testing status.
+  status_id: item.statusId || null,
+  // Support and QA dates are needed by Ongoing Testing for green/orange/red row color rules.
+  start_repairing_support: item.startRepairingSupport || null,
+  // End support date is the due-date used by the warning and overdue colors.
+  end_date_support: item.endDateSupport || null,
+  // Start QA is carried so the generated row can show the latest workflow state.
+  start_qa: item.startQa || null,
+  // End QA is carried so completed workflow state remains synchronized.
+  end_date_qa: item.endDateQa || null,
+  // Remarks should follow the inventory record because Ongoing Testing is generated from it.
+  remarks: item.remarks || null,
+  // Store the source inventory id so future saves update the same generated testing row instead of duplicating it.
+  source_inventory_id: item.id || null,
+});
+
+const syncOngoingTestingFromInventory = async (item) => {
+  // Build the generated Ongoing Testing payload from the saved inventory row.
+  const payload = mapInventoryToOngoingDb(item);
+  // Update the existing generated testing row first, using source_inventory_id as the link.
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("ongoing_testing_items")
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq("source_inventory_id", item.id)
+    .select("id");
+
+  // Return a readable error message so Inventory Records can show the user what failed.
+  if (updateError) {
+    return `Inventory saved, but Ongoing Testing sync failed: ${updateError.message}`;
+  }
+
+  // If an existing generated row was found, no insert is needed.
+  if ((updatedRows || []).length > 0) {
+    return "";
+  }
+
+  // Insert a generated testing row when this inventory record has never been mirrored before.
+  const { error: insertError } = await supabase
+    .from("ongoing_testing_items")
+    .insert(payload);
+
+  // Return a readable insert error, if Supabase rejects the generated row.
+  if (insertError) {
+    return `Inventory saved, but Ongoing Testing sync failed: ${insertError.message}`;
+  }
+
+  // Empty string means the sync completed successfully.
+  return "";
+};
+
+const mapInventoryToRepairDb = (item) => ({
+  // Link the repair task to the source inventory row so updates do not create duplicates.
+  source_inventory_id: item.id || null,
+  // Copy company because the repair list shows it as the first identifying field.
+  company: item.company || null,
+  // Copy client id for future reporting and filtering.
+  client_id: item.clientId || null,
+  // Copy client code because users identify repairs by client code in the workflow.
+  client_code: item.clientCode || null,
+  // Copy the date received from inventory.
+  date_received: item.dateReceived || null,
+  // Copy the package style shown in the repair queue.
+  package_style: item.packageStyle || null,
+  // Copy CST number shown in the repair queue.
+  cst_number: item.cstNumber || null,
+  // Copy ticket number shown in the repair queue.
+  ticket_number: item.ticketNumber || null,
+  // Copy serial number shown in the repair queue.
+  sn_number: item.snNumber || null,
+  // Copy device type shown in the repair queue and checking page.
+  device_type: item.deviceType || null,
+  // Copy adapter flag shown in the repair queue and checking page.
+  with_adapter: item.withAdapter || "No",
+});
+
+const syncRepairDeviceFromInventory = async (item) => {
+  // Build the repair workflow payload from inventory fields only.
+  const payload = mapInventoryToRepairDb(item);
+  // Try updating an existing generated repair row first.
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("repair_device_records")
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq("source_inventory_id", item.id)
+    .select("id");
+
+  // Return a readable error if the repair workflow table has not been created or policy blocks the update.
+  if (updateError) {
+    return `Inventory saved, but Testing Device sync failed: ${updateError.message}`;
+  }
+
+  // Stop after update when a linked repair row already exists.
+  if ((updatedRows || []).length > 0) {
+    return "";
+  }
+
+  // Insert a new repair queue row for a newly created inventory record.
+  const { error: insertError } = await supabase
+    .from("repair_device_records")
+    .insert({
+      ...payload,
+      workflow_status: "Repair By",
+    });
+
+  // Return a readable insert error if Supabase rejects the generated repair row.
+  if (insertError) {
+    return `Inventory saved, but Testing Device sync failed: ${insertError.message}`;
+  }
+
+  // Empty string means the repair workflow sync completed successfully.
+  return "";
+};
+
 const getDeviceLabel = (item) =>
   item?.snNumber || item?.cstNumber || item?.ticketNumber || item?.clientCode || item?.company || "Untitled record";
+
+const normalizeStatusName = (value) =>
+  // Normalize status names so lookup still works even if casing or spaces differ.
+  String(value || "").trim().toLowerCase();
+
+const findStatusByName = (statuses, statusName) =>
+  // Find the configured Status row that matches the automatic workflow status name.
+  statuses.find((status) => normalizeStatusName(status.name) === normalizeStatusName(statusName));
+
+const getLocalDateString = () => {
+  // Build today's date in local time so support overdue checks match the user's calendar day.
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getAutomaticInventoryStatusName = (item) => {
+  // Completed is the final inventory workflow state once QA has an end date.
+  if (item.endDateQa) return "Completed";
+  // Ongoing QA starts as soon as Start QA has a value.
+  if (item.startQa) return "Ongoing QA";
+  // Overdue Support applies only after the support end date has passed and QA has not started.
+  if (item.endDateSupport && !item.startQa && item.endDateSupport < getLocalDateString()) {
+    return "Overdue Support";
+  }
+  // Ongoing Support starts as soon as Start Repairing Support has a value.
+  if (item.startRepairingSupport) return "Ongoing Support";
+  // N/A is the default automatic status for newly created records with no workflow dates.
+  return "N/A";
+};
 
 const exportExcel = (items, statuses) => {
   const headers = ["Company", "Client Code", "Raised by", "Date Received", "Package Style", "CST Number", "Ticket Number", "SN Number", "Device Type", "With Adapter", "Start Repairing Support", "End Date Support", "Start QA", "End Date QA", "Status", "Date Delivered", "Give to", "Remarks"];
@@ -823,6 +964,8 @@ const getExportCellClass = (index, row) => {
 
 const getStatusExportColor = (statusName) => {
   if (statusName === "Completed" || statusName === "Complete" || statusName === "Deployed") return "#00ff00";
+  if (statusName === "Ongoing Support" || statusName === "Ongoing QA") return "#ff9900";
+  if (statusName === "Overdue Support") return "#ff0000";
   if (statusName === "N/A") return "#c9daf8";
   if (statusName === "Defect") return "#ff0000";
   return "#ffffff";
@@ -848,7 +991,3 @@ const getTextColor = (background) => {
   return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? "#000000" : "#ffffff";
 };
 
-const isClosedStatus = (statusName) => {
-  const normalized = String(statusName || "").trim().toLowerCase();
-  return normalized === "completed" || normalized === "complete" || normalized === "n/a";
-};

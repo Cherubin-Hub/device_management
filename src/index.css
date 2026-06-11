@@ -32,6 +32,85 @@ body {
   min-width: 320px;
 }
 
+/* Theme readability tokens used by the global overrides below. */
+html[data-theme="light"] {
+  --app-text: #0f172a;
+  --app-muted-text: #334155;
+  --app-table-head: #d9d9d9;
+  --app-table-border: #d7dee8;
+  --app-input-bg: #ffffff;
+  --app-readonly-bg: #f3f4f6;
+}
+
+html[data-theme="dark"] {
+  --app-text: #ffffff;
+  --app-muted-text: #e5e7eb;
+  --app-table-head: #334155;
+  --app-table-border: #475569;
+  --app-input-bg: #111827;
+  --app-readonly-bg: #374151;
+}
+
+/* Keep app text black in light mode and white in dark mode for readability. */
+html[data-theme] body,
+html[data-theme] .MuiTypography-root,
+html[data-theme] .MuiTableCell-root,
+html[data-theme] .MuiInputBase-input,
+html[data-theme] .MuiInputLabel-root,
+html[data-theme] .MuiFormLabel-root,
+html[data-theme] .MuiMenuItem-root,
+html[data-theme] .MuiTab-root,
+html[data-theme] .MuiDialogTitle-root,
+html[data-theme] .MuiDialogContent-root,
+html[data-theme] .MuiDialogActions-root {
+  color: var(--app-text) !important;
+}
+
+/* Keep secondary labels and placeholders readable without making them harsh. */
+html[data-theme] .MuiTypography-colorTextSecondary,
+html[data-theme] .MuiInputBase-input::placeholder {
+  color: var(--app-muted-text) !important;
+  opacity: 1;
+}
+
+/* Keep table headers readable against the active theme. */
+html[data-theme] .MuiTableCell-head {
+  background-color: var(--app-table-head) !important;
+  color: var(--app-text) !important;
+}
+
+/* Keep table borders visible in both light and dark modes. */
+html[data-theme] .MuiTableCell-root {
+  border-color: var(--app-table-border) !important;
+}
+
+/* Keep form fields readable when pages use custom styling. */
+html[data-theme] .MuiOutlinedInput-root,
+html[data-theme] .MuiInputBase-root {
+  background-color: var(--app-input-bg);
+  color: var(--app-text) !important;
+}
+
+/* Keep disabled or read-only fields visible in both modes. */
+html[data-theme] .MuiInputBase-root.Mui-disabled,
+html[data-theme] .MuiInputBase-input.Mui-disabled {
+  background-color: var(--app-readonly-bg) !important;
+  color: var(--app-muted-text) !important;
+  -webkit-text-fill-color: var(--app-muted-text) !important;
+}
+
+/* Keep chip labels readable even when chips use status colors. */
+html[data-theme] .MuiChip-label {
+  color: var(--app-text) !important;
+}
+
+/* Sidebar always uses a dark background, so every sidebar label/icon must stay white. */
+.app-sidebar,
+.app-sidebar * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
 button,
 input,
 textarea,

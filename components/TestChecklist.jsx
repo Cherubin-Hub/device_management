@@ -1,7 +1,6 @@
 import {
   Box,
   Checkbox,
-  Chip,
   FormControlLabel,
   LinearProgress,
   Stack,
@@ -18,7 +17,7 @@ import {
 import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
 import { tests } from "./testScripts";
 
-export default function TestChecklist({ results, onResultsChange }) {
+export default function TestChecklist({ hideSummaryChip = false, results, onResultsChange }) {
   const handleStatusChange = (index, status) => {
     // Toggle the selected status for one checklist row while keeping the other rows unchanged.
     onResultsChange((current) =>
@@ -39,7 +38,7 @@ export default function TestChecklist({ results, onResultsChange }) {
     );
   };
 
-  // Count all tests marked Yes for the summary chip.
+  // Count all tests marked Yes for the optional summary chip.
   const passedCount = results.filter((result) => result.status === "Yes").length;
   // Count rows with any selected status for the completion progress.
   const evaluatedCount = results.filter((result) => result.status).length;
@@ -79,12 +78,20 @@ export default function TestChecklist({ results, onResultsChange }) {
           </Box>
         </Stack>
 
-        <Chip
-          label={`${passedCount}/${tests.length} yes`}
-          color={passedCount === tests.length ? "success" : "default"}
-          variant={passedCount === tests.length ? "filled" : "outlined"}
-          sx={{ fontWeight: 700 }}
-        />
+        {!hideSummaryChip ? (
+          <Box
+            sx={{
+              border: "1px solid #cfd8e3",
+              borderRadius: 999,
+              px: 1.25,
+              py: 0.5,
+            }}
+          >
+            <Typography variant="body2">
+              {passedCount}/{tests.length} yes
+            </Typography>
+          </Box>
+        ) : null}
       </Stack>
 
       <Box>
