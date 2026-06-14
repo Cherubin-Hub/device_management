@@ -237,15 +237,15 @@ export default function RepairDeviceCheckPage({ readOnly = false, recordId, onBa
         </Alert>
       ) : null}
 
-      <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", lg: "center" }} spacing={1.5} sx={{ mb: 2 }}>
-        <Box>
+      <Stack className="module-page-header" direction={{ xs: "column", lg: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", lg: "center" }} spacing={1.5} sx={{ mb: 2 }}>
+        <Box className="module-page-copy">
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.75 }}>
-            <Typography variant="h5" component="h1" fontWeight={900}>
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               Device Repair Checking
             </Typography>
             <WorkflowStatusChip value={record.workflow_status} />
           </Stack>
-          <Typography variant="caption" color="text.secondary">
+          <Typography className="module-page-description" variant="caption" color="text.secondary">
             {readOnly ? "Viewing only. Get the record first before editing." : "Double-click workflow page with automatic saving for device checking."}
           </Typography>
         </Box>

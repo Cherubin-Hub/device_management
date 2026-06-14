@@ -2,10 +2,10 @@ import {
   Avatar,
   Box,
   Chip,
+  MenuItem,
   LinearProgress,
   Paper,
   Stack,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -13,59 +13,55 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
   useTheme,
 } from "@mui/material";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import BuildCircleRoundedIcon from "@mui/icons-material/BuildCircleRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
-import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
-import PriorityHighRoundedIcon from "@mui/icons-material/PriorityHighRounded";
+import PaletteRoundedIcon from "@mui/icons-material/PaletteRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import SortRoundedIcon from "@mui/icons-material/SortRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { useEffect, useMemo, useState } from "react";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
+import { paginateRows } from "../src/lib/pagination.js";
+import { getWorkflowStatusDisplayName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
-const sampleClients = [
-  { id: 1, name: "Wilcon Depot, Inc.", client_code: "Wilcon", is_active: true },
-  { id: 2, name: "Penscott Corporation", client_code: "Penscott", is_active: true },
-  { id: 3, name: "Stalwart Psychological Services Inc.", client_code: "Stalwart", is_active: true },
-];
+const dashboardAccent = {
+  blue: "#00cfe8",
+  green: "#28c76f",
+  orange: "#ff9f43",
+  purple: "#7367f0",
+  red: "#ea5455",
+  teal: "#20d0c4",
+};
 
-const sampleStatuses = [
-  { id: 1, name: "Ongoing Repair", color: "#fb923c" },
-  { id: 2, name: "Completed", color: "#16a34a" },
-  { id: 3, name: "Defect", color: "#dc2626" },
-  { id: 4, name: "N/A", color: "#64748b" },
-];
+const defaultDashboardData = {
+  archivedRecords: [],
+  auditTrailCount: 0,
+  clients: [],
+  deviceTypes: [],
+  inventory: [],
+  releaseNotes: [],
+  repairRecords: [],
+  statuses: [],
+  testing: [],
+  users: [],
+};
 
-const sampleInventory = [
-  { id: 1, client_id: 1, status_id: 2 },
-  { id: 2, client_id: 1, status_id: 2 },
-  { id: 3, client_id: 2, status_id: 4 },
-  { id: 4, client_id: 3, status_id: 3 },
-];
-
-const sampleTesting = [
-  { id: 1, client_id: 1, status_id: 1 },
-  { id: 2, client_id: 1, status_id: 3 },
-  { id: 3, client_id: 2, status_id: 1 },
-];
-
-export default function DashboardPage({ mode, onToggleMode, userDisplayName, userEmail }) {
+export default function DashboardPage({ mode, onChangeMode, userDisplayName, userEmail }) {
   const theme = useTheme();
-  // Start with sample data so the dashboard still renders before Supabase data loads.
-  const [clients, setClients] = useState(sampleClients);
-  const [inventory, setInventory] = useState(sampleInventory);
-  const [testing, setTesting] = useState(sampleTesting);
-  const [statuses, setStatuses] = useState(sampleStatuses);
+  const [dashboardData, setDashboardData] = useState(defaultDashboardData);
   const [search, setSearch] = useState("");
-  const [sortConfig, setSortConfig] = useState({ key: "totalRecords", direction: "desc" });
+  const [sortConfig, setSortConfig] = useState({ key: "total", direction: "desc" });
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -73,20 +69,45 @@ export default function DashboardPage({ mode, onToggleMode, userDisplayName, use
     async function loadDashboardData() {
       if (!supabase) return;
 
-      // Load dashboard source data in parallel because each summary depends on multiple tables.
-      const [clientsResult, inventoryResult, testingResult, statusesResult] = await Promise.all([
+      // Load every current module source in parallel so the dashboard remains aligned with the sidebar.
+      const [
+        clientsResult,
+        inventoryResult,
+        testingResult,
+        statusesResult,
+        deviceTypesResult,
+        repairRecordsResult,
+        archivedRecordsResult,
+        auditTrailResult,
+        usersResult,
+        releaseNotesResult,
+      ] = await Promise.all([
         supabase.from("clients").select("id, name, client_code, is_active").order("name"),
         supabase.from("device_inventory_items").select("id, client_id, status_id"),
         supabase.from("ongoing_testing_items").select("id, client_id, status_id"),
         supabase.from("statuses").select("id, name, color, is_active").order("name"),
+        supabase.from("device_types").select("id, name, is_active").order("name"),
+        supabase.from("repair_device_records").select("id, workflow_status, assigned_to_email, client_code, company"),
+        supabase.from("archived_records").select("id, module"),
+        supabase.from("audit_trail").select("id", { count: "exact", head: true }),
+        supabase.from("app_users").select("id, display_name, email, is_active"),
+        supabase.from("release_notes").select("id, title, created_at"),
       ]);
 
       if (ignore) return;
 
-      if (!clientsResult.error) setClients(clientsResult.data || []);
-      if (!inventoryResult.error) setInventory(inventoryResult.data || []);
-      if (!testingResult.error) setTesting(testingResult.data || []);
-      if (!statusesResult.error) setStatuses(statusesResult.data || []);
+      setDashboardData({
+        archivedRecords: getRows(archivedRecordsResult),
+        auditTrailCount: auditTrailResult.count || 0,
+        clients: getRows(clientsResult),
+        deviceTypes: getRows(deviceTypesResult),
+        inventory: getRows(inventoryResult),
+        releaseNotes: getRows(releaseNotesResult),
+        repairRecords: getRows(repairRecordsResult),
+        statuses: getRows(statusesResult),
+        testing: getRows(testingResult),
+        users: getRows(usersResult),
+      });
     }
 
     loadDashboardData();
@@ -97,52 +118,197 @@ export default function DashboardPage({ mode, onToggleMode, userDisplayName, use
   }, []);
 
   const statusById = useMemo(
-    // Build a fast lookup map so status calculations do not repeatedly search the array.
-    () => new Map(statuses.map((status) => [status.id, status])),
-    [statuses]
+    // Status lookup keeps repeated inventory/tracking counts fast and readable.
+    () => new Map(dashboardData.statuses.map((status) => [status.id, status])),
+    [dashboardData.statuses]
   );
 
-  const allRecords = useMemo(
-    // Combine inventory and testing rows so summary cards can count all device records together.
-    () => [
-      ...inventory.map((item) => ({ ...item, recordType: "Inventory" })),
-      ...testing.map((item) => ({ ...item, recordType: "Ongoing Testing" })),
-    ],
-    [inventory, testing]
+  const workflowCounts = useMemo(
+    // Testing Device queues are calculated from the same workflow labels used by the repair pages.
+    () => buildWorkflowCounts(dashboardData.repairRecords, userEmail),
+    [dashboardData.repairRecords, userEmail]
   );
 
-  const dashboardRows = useMemo(() => {
-    // Build one dashboard row per client with inventory, testing, and status-based totals.
-    const rows = clients.map((client) => {
-      const clientInventory = inventory.filter((item) => item.client_id === client.id);
-      const clientTesting = testing.filter((item) => item.client_id === client.id);
-      const clientRecords = [...clientInventory, ...clientTesting];
-      const completed = clientRecords.filter((item) => isCompleted(statusById.get(item.status_id)?.name)).length;
-      const failed = clientRecords.filter((item) => isFailed(statusById.get(item.status_id)?.name)).length;
-      const pending = clientRecords.filter((item) => {
-        const statusName = statusById.get(item.status_id)?.name;
-        return !isCompleted(statusName) && !isFailed(statusName);
-      }).length;
+  const inventoryCompleted = countByStatus(dashboardData.inventory, statusById, isCompleted);
+  const testingCompleted = countByStatus(dashboardData.testing, statusById, isCompleted);
+  const inventoryIssues = countByStatus(dashboardData.inventory, statusById, isFailed);
+  const testingIssues = countByStatus(dashboardData.testing, statusById, isFailed);
+  const activeUsers = dashboardData.users.filter((user) => user.is_active !== false).length;
+  const inactiveUsers = dashboardData.users.length - activeUsers;
+  const activeConfigurationCount = [
+    ...dashboardData.clients,
+    ...dashboardData.statuses,
+    ...dashboardData.deviceTypes,
+  ].filter((item) => item.is_active !== false).length;
+  const configurationCount =
+    dashboardData.clients.length + dashboardData.statuses.length + dashboardData.deviceTypes.length;
+  const repairManagementTotal = dashboardData.inventory.length + dashboardData.testing.length;
+  const issueTotal = inventoryIssues + testingIssues;
+  // Operational Records should reflect only active ongoing repair workflow records,
+  // not the combined Repair Records + Repair Tracking + repair workflow totals.
+  const totalOperationalRecords = workflowCounts.allActive;
+  // Completion Rate is based on the repair workflow only so it stays consistent with Operational Records.
+  const completionRate = formatPercent(workflowCounts.done, workflowCounts.done + workflowCounts.allActive);
 
-      return {
-        id: client.id,
-        clientName: client.name,
-        clientCode: client.client_code,
-        totalInventory: clientInventory.length,
-        ongoingTesting: clientTesting.length,
-        completed,
-        pending,
-        failed,
-        totalRecords: clientRecords.length,
-      };
-    });
+  const summaryCards = [
+    {
+      color: dashboardAccent.purple,
+      description: "Device records in Repair Management.",
+      icon: <Inventory2RoundedIcon />,
+      title: "Repair Records",
+      value: dashboardData.inventory.length,
+    },
+    {
+      color: dashboardAccent.blue,
+      description: "Devices visible in Repair Tracking.",
+      icon: <AssessmentRoundedIcon />,
+      title: "Repair Tracking",
+      value: dashboardData.testing.length,
+    },
+    {
+      color: dashboardAccent.orange,
+      description: "Claimed or queued testing workflow tasks.",
+      icon: <BuildCircleRoundedIcon />,
+      title: "Active Repair Tasks",
+      value: workflowCounts.allActive,
+    },
+    {
+      color: dashboardAccent.green,
+      description: "Completed repair workflow records.",
+      icon: <TaskAltRoundedIcon />,
+      title: "Done Repair Device",
+      value: workflowCounts.done,
+    },
+  ];
 
+  const moduleRows = useMemo(() => {
+    const rows = [
+      {
+        attention: inventoryIssues,
+        completed: inventoryCompleted,
+        description: "Device records, support dates, QA dates, delivery, and remarks.",
+        module: "Repair Records",
+        open: Math.max(0, dashboardData.inventory.length - inventoryCompleted - inventoryIssues),
+        section: "Repair Management",
+        total: dashboardData.inventory.length,
+      },
+      {
+        attention: testingIssues,
+        completed: testingCompleted,
+        description: "Generated tracking records with package pictures and workflow people.",
+        module: "Repair Tracking",
+        open: Math.max(0, dashboardData.testing.length - testingCompleted - testingIssues),
+        section: "Repair Management",
+        total: dashboardData.testing.length,
+      },
+      {
+        attention: configurationCount - activeConfigurationCount,
+        completed: 0,
+        description: "Clients, statuses, and device types used by dropdown fields.",
+        module: "Configurations",
+        open: activeConfigurationCount,
+        section: "Repair Management",
+        total: configurationCount,
+      },
+      {
+        attention: 0,
+        completed: 0,
+        description: "Deleted records that can be restored by users.",
+        module: "Archived Records",
+        open: dashboardData.archivedRecords.length,
+        section: "Repair Management",
+        total: dashboardData.archivedRecords.length,
+      },
+      {
+        attention: 0,
+        completed: dashboardData.auditTrailCount,
+        description: "Movement history generated from inventory, workflow, and setup changes.",
+        module: "Audit Trail",
+        open: 0,
+        section: "Repair Management",
+        total: dashboardData.auditTrailCount,
+      },
+      {
+        attention: 0,
+        completed: 0,
+        description: "Unassigned repair tasks waiting to be claimed.",
+        module: "New Repair Device",
+        open: workflowCounts.newQueue,
+        section: "Testing Device",
+        total: workflowCounts.newQueue,
+      },
+      {
+        attention: 0,
+        completed: 0,
+        description: "Records finished by Repair By and waiting for support testing.",
+        module: "Ongoing Support Testing",
+        open: workflowCounts.supportQueue,
+        section: "Testing Device",
+        total: workflowCounts.supportQueue,
+      },
+      {
+        attention: 0,
+        completed: 0,
+        description: "Records finished by support testing and waiting for senior testing.",
+        module: "Ongoing Senior Testing",
+        open: workflowCounts.seniorQueue,
+        section: "Testing Device",
+        total: workflowCounts.seniorQueue,
+      },
+      {
+        attention: 0,
+        completed: 0,
+        description: "Active repair or testing tasks assigned to the signed-in user.",
+        module: "My Repair/Testing Device",
+        open: workflowCounts.myActive,
+        section: "Testing Device",
+        total: workflowCounts.myActive,
+      },
+      {
+        attention: 0,
+        completed: 0,
+        description: "All active repair tasks claimed by any user.",
+        module: "All Repair Device",
+        open: workflowCounts.allActive,
+        section: "Testing Device",
+        total: workflowCounts.allActive,
+      },
+      {
+        attention: 0,
+        completed: workflowCounts.done,
+        description: "Completed repair workflow records ready for PDF export.",
+        module: "Done Repair Device",
+        open: 0,
+        section: "Testing Device",
+        total: workflowCounts.done,
+      },
+      {
+        attention: inactiveUsers,
+        completed: 0,
+        description: "User display names, account status, and module access rights.",
+        module: "User",
+        open: activeUsers,
+        section: "Administration",
+        total: dashboardData.users.length,
+      },
+      {
+        attention: 0,
+        completed: dashboardData.releaseNotes.length,
+        description: "Application release note titles and content.",
+        module: "Release Notes",
+        open: 0,
+        section: "Administration",
+        total: dashboardData.releaseNotes.length,
+      },
+    ];
+
+    const query = search.trim().toLowerCase();
     const filtered = rows.filter((row) => {
-      const query = search.trim().toLowerCase();
+      if (!query) return true;
       return (
-        !query ||
-        row.clientName.toLowerCase().includes(query) ||
-        String(row.clientCode || "").toLowerCase().includes(query)
+        row.module.toLowerCase().includes(query) ||
+        row.section.toLowerCase().includes(query) ||
+        row.description.toLowerCase().includes(query)
       );
     });
 
@@ -150,81 +316,98 @@ export default function DashboardPage({ mode, onToggleMode, userDisplayName, use
       const firstValue = first[sortConfig.key];
       const secondValue = second[sortConfig.key];
       const direction = sortConfig.direction === "asc" ? 1 : -1;
-      if (typeof firstValue === "number") {
-        return (firstValue - secondValue) * direction;
-      }
+      if (typeof firstValue === "number") return (firstValue - secondValue) * direction;
       return String(firstValue || "").localeCompare(String(secondValue || "")) * direction;
     });
-  }, [clients, inventory, search, sortConfig, statusById, testing]);
+  }, [
+    activeConfigurationCount,
+    activeUsers,
+    configurationCount,
+    dashboardData.archivedRecords.length,
+    dashboardData.auditTrailCount,
+    dashboardData.inventory.length,
+    dashboardData.releaseNotes.length,
+    dashboardData.testing.length,
+    dashboardData.users.length,
+    inactiveUsers,
+    inventoryCompleted,
+    inventoryIssues,
+    search,
+    sortConfig,
+    testingCompleted,
+    testingIssues,
+    workflowCounts,
+  ]);
+
+  const paginatedModuleRows = useMemo(
+    () => paginateRows(moduleRows, page),
+    [moduleRows, page]
+  );
 
   const statusBreakdown = useMemo(() => {
-    // Count records by module and by status for the visual status breakdown section.
     const counts = new Map();
-    counts.set("Inventory", inventory.length);
-    counts.set("Ongoing Testing", testing.length);
-    allRecords.forEach((record) => {
-      const name = statusById.get(record.status_id)?.name || "Pending";
+
+    // Workflow Breakdown should summarize Repair Records only for Repair Management statuses.
+    // Repair Tracking mirrors some inventory statuses, so including it here double-counts records.
+    dashboardData.inventory.forEach((record) => {
+      const name = statusById.get(record.status_id)?.name || "Inventory Pending";
       counts.set(name, (counts.get(name) || 0) + 1);
     });
-    return [...counts.entries()].map(([name, count]) => ({
-      name,
-      count,
-      color: getStatusColor(name, statuses),
-    }));
-  }, [allRecords, inventory.length, statusById, statuses, testing.length]);
 
-  const completedTesting = allRecords.filter((record) => isCompleted(statusById.get(record.status_id)?.name)).length;
-  const failedRecords = allRecords.filter((record) => isFailed(statusById.get(record.status_id)?.name)).length;
-  const pendingRecords = allRecords.length - completedTesting - failedRecords;
+    dashboardData.repairRecords.forEach((record) => {
+      const name = getWorkflowStatusDisplayName(record.workflow_status);
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
 
-  const summaryCards = [
-    {
-      title: "Total Inventory",
-      value: inventory.length,
-      description: "Records currently in inventory.",
-      icon: <Inventory2RoundedIcon />,
-      color: "#1976d2",
-    },
-    {
-      title: "Ongoing Testing",
-      value: testing.length,
-      description: "Devices still under testing.",
-      icon: <AssessmentRoundedIcon />,
-      color: "#0f766e",
-    },
-    {
-      title: "Completed Testing",
-      value: completedTesting,
-      description: "Records tagged as completed.",
-      icon: <TaskAltRoundedIcon />,
-      color: "#16a34a",
-    },
-    {
-      title: "Pending Records",
-      value: pendingRecords,
-      description: "Open records awaiting progress.",
-      icon: <PriorityHighRoundedIcon />,
-      color: "#f59e0b",
-    },
-    {
-      title: "Failed / Issue Records",
-      value: failedRecords,
-      description: "Defect, failed, or issue records.",
-      icon: <WarningAmberRoundedIcon />,
-      color: "#dc2626",
-    },
-    {
-      title: "Total Clients",
-      value: clients.length,
-      description: "Configured client records.",
-      icon: <GroupsRoundedIcon />,
-      color: "#7c3aed",
-    },
-  ];
+    return [...counts.entries()]
+      .map(([name, count]) => ({ color: getStatusColor(name, dashboardData.statuses), count, name }))
+      .sort((first, second) => second.count - first.count || first.name.localeCompare(second.name));
+  }, [dashboardData.inventory, dashboardData.repairRecords, dashboardData.statuses, statusById]);
 
   const maxStatusCount = Math.max(...statusBreakdown.map((item) => item.count), 1);
+  const activityRows = [
+    {
+      color: dashboardAccent.purple,
+      label: "Repair Management",
+      value: repairManagementTotal + configurationCount,
+    },
+    {
+      color: dashboardAccent.orange,
+      label: "Testing Device",
+      value: dashboardData.repairRecords.length,
+    },
+    {
+      color: dashboardAccent.green,
+      label: "Administration",
+      value: dashboardData.users.length + dashboardData.releaseNotes.length,
+    },
+    {
+      color: dashboardAccent.blue,
+      label: "Audit and Archive",
+      value: dashboardData.auditTrailCount + dashboardData.archivedRecords.length,
+    },
+  ];
+  const maxActivityValue = Math.max(...activityRows.map((item) => item.value), 1);
+
+  const workflowRows = [
+    { color: dashboardAccent.purple, label: "New Repair Queue", value: workflowCounts.newQueue },
+    { color: dashboardAccent.blue, label: "Support Testing Queue", value: workflowCounts.supportQueue },
+    { color: dashboardAccent.orange, label: "Senior Testing Queue", value: workflowCounts.seniorQueue },
+    { color: dashboardAccent.teal, label: "My Assigned Tasks", value: workflowCounts.myActive },
+    { color: dashboardAccent.green, label: "Done Repair Device", value: workflowCounts.done },
+  ];
+  const maxWorkflowValue = Math.max(...workflowRows.map((item) => item.value), 1);
+
+  const configRows = [
+    { color: dashboardAccent.purple, label: "Clients", value: dashboardData.clients.length },
+    { color: dashboardAccent.green, label: "Statuses", value: dashboardData.statuses.length },
+    { color: dashboardAccent.blue, label: "Device Types", value: dashboardData.deviceTypes.length },
+    { color: dashboardAccent.red, label: "Inactive Users", value: inactiveUsers },
+  ];
+  const maxConfigValue = Math.max(...configRows.map((item) => item.value), 1);
 
   const handleSort = (key) => {
+    setPage(1);
     setSortConfig((current) => ({
       key,
       direction: current.key === key && current.direction === "desc" ? "asc" : "desc",
@@ -232,213 +415,398 @@ export default function DashboardPage({ mode, onToggleMode, userDisplayName, use
   };
 
   return (
-    <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
-      <DashboardHeader mode={mode} onToggleMode={onToggleMode} userDisplayName={userDisplayName} userEmail={userEmail} />
-
+    <Box className="vuexy-dashboard" component="main" sx={dashboardRootSx(theme)}>
       <Box
+        className="module-page-header"
         sx={{
-          display: "grid",
+          alignItems: "center",
+          display: "block",
           gap: 1.5,
-          gridTemplateColumns: {
-            xs: "1fr",
-            sm: "repeat(2, minmax(0, 1fr))",
-            lg: "repeat(3, minmax(0, 1fr))",
-          },
           mb: 2,
+          minHeight: { xs: "auto", md: 46 },
+          position: "relative",
+          width: "100%",
         }}
       >
-        {summaryCards.map((card) => (
-          <SummaryCard key={card.title} {...card} />
-        ))}
+        <Box className="module-page-copy" sx={{ pr: { xs: 0, md: "460px" } }}>
+          <Typography className="module-page-title" variant="h4" component="h1">
+            Dashboard
+          </Typography>
+          <Typography className="module-page-description" variant="body2" color="text.secondary">
+            Repair management, testing workflow, administration, and audit overview.
+          </Typography>
+        </Box>
+
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="flex-end"
+          spacing={1.25}
+          sx={{
+            mt: { xs: 1.5, md: 0 },
+            position: { xs: "static", md: "absolute" },
+            right: 0,
+            top: { md: "50%" },
+            transform: { md: "translateY(-50%)" },
+            width: { xs: "100%", md: "auto" },
+          }}
+        >
+          <TextField
+            className="theme-mode-select"
+            select
+            size="small"
+            value={mode}
+            onChange={(event) => onChangeMode(event.target.value)}
+            SelectProps={{ MenuProps: { PaperProps: { className: "compact-select-menu-paper" } } }}
+            sx={{ minWidth: 128 }}
+          >
+            <MenuItem value="light">
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <LightModeRoundedIcon fontSize="small" />
+                <span>Light</span>
+              </Stack>
+            </MenuItem>
+            <MenuItem value="dark">
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <DarkModeRoundedIcon fontSize="small" />
+                <span>Dark</span>
+              </Stack>
+            </MenuItem>
+            <MenuItem value="pink">
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <PaletteRoundedIcon fontSize="small" />
+                <span>Pink</span>
+              </Stack>
+            </MenuItem>
+          </TextField>
+          <Avatar sx={{ bgcolor: dashboardAccent.teal, color: "#061413", fontSize: 12, height: 34, width: 34 }}>
+            {getInitials(userDisplayName || userEmail)}
+          </Avatar>
+          <Box sx={{ display: { xs: "none", sm: "block" }, minWidth: 0 }}>
+            <Typography sx={leftTextSx} variant="body2" noWrap>
+              {userDisplayName || "User"}
+            </Typography>
+            <Typography sx={mutedTextSx} variant="caption" noWrap>
+              Signed in
+            </Typography>
+          </Box>
+        </Stack>
       </Box>
 
-      <Box
-        sx={{
-          display: "grid",
-          gap: 2,
-          gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1.55fr) minmax(320px, 0.75fr)" },
-        }}
-      >
-        <Paper elevation={0} sx={{ border: borderColor(theme), borderRadius: 2, overflow: "hidden" }}>
+      <Box sx={dashboardGridSx}>
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", lg: "span 8" }, p: 2.4 }}>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "flex-start", md: "center" }}>
+            <Box align="left" sx={{ flex: 1, minWidth: 0 }}>
+              <Chip
+                label="Endivio Workspace"
+                size="small"
+                sx={{
+                  bgcolor: theme.palette.mode === "dark" ? "rgba(115,103,240,0.16)" : "rgba(115,103,240,0.10)",
+                  color: dashboardAccent.purple,
+                  mb: 1.25,
+                }}
+              />
+              <Typography sx={{ ...leftTextSx, fontSize: { xs: 22, md: 27 }, lineHeight: 1.15 }} variant="h4">
+                Repair Operations Dashboard
+              </Typography>
+              <Typography sx={{ ...mutedTextSx, mt: 0.75, maxWidth: 700 }} variant="body2">
+                Live module summary for device records, repair queues, workflow completion, archive activity, and administration data.
+              </Typography>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: 2 }}>
+                <HeroMetric label="Operational Records" value={totalOperationalRecords} />
+                <HeroMetric label="Completion Rate" value={`${completionRate}%`} />
+                <HeroMetric label="Issue Records" value={issueTotal} />
+              </Stack>
+            </Box>
+
+            <Box sx={heroRingSx(completionRate)}>
+              <Box sx={heroRingInnerSx(theme)}>
+                <Typography sx={{ color: "text.primary", fontSize: 28, lineHeight: 1 }} variant="h4">
+                  {completionRate}%
+                </Typography>
+                <Typography sx={mutedCenterTextSx} variant="caption">
+                  Complete
+                </Typography>
+              </Box>
+            </Box>
+          </Stack>
+        </Paper>
+
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", lg: "span 4" }, p: 2.2 }}>
+          <PanelTitle
+            icon={<TimelineRoundedIcon />}
+            subtitle="Current Testing Device queue movement"
+            title="Workflow Tracker"
+          />
+          <Stack spacing={1.25} sx={{ mt: 1.25 }}>
+            {workflowRows.map((item) => (
+              <ProgressRow
+                key={item.label}
+                color={item.color}
+                label={item.label}
+                max={maxWorkflowValue}
+                value={item.value}
+              />
+            ))}
+          </Stack>
+        </Paper>
+
+        {summaryCards.map((card) => (
+          <Paper key={card.title} elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", sm: "span 6", lg: "span 3" }, p: 1.9 }}>
+            <SummaryCard {...card} />
+          </Paper>
+        ))}
+
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", xl: "span 4" }, p: 2.2 }}>
+          <PanelTitle
+            icon={<AssessmentRoundedIcon />}
+            subtitle="Record count by application area"
+            title="Module Activity"
+          />
+          <Stack spacing={1.3} sx={{ mt: 1.5 }}>
+            {activityRows.map((item) => (
+              <ProgressRow
+                key={item.label}
+                color={item.color}
+                label={item.label}
+                max={maxActivityValue}
+                value={item.value}
+              />
+            ))}
+          </Stack>
+        </Paper>
+
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", xl: "span 4" }, p: 2.2 }}>
+          <PanelTitle
+            icon={<SettingsRoundedIcon />}
+            subtitle="Setup records that feed dropdowns and access"
+            title="Configuration Snapshot"
+          />
+          <Stack spacing={1.25} sx={{ mt: 1.5 }}>
+            {configRows.map((item) => (
+              <ProgressRow
+                key={item.label}
+                color={item.color}
+                label={item.label}
+                max={maxConfigValue}
+                value={item.value}
+              />
+            ))}
+          </Stack>
+        </Paper>
+
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", xl: "span 4" }, p: 2.2 }}>
+          <PanelTitle
+            icon={<WarningAmberRoundedIcon />}
+            subtitle="Status count across Repair Management and Testing Device"
+            title="Workflow Breakdown"
+          />
+          <Stack spacing={1.15} sx={{ mt: 1.5 }}>
+            {statusBreakdown.length === 0 ? (
+              <Typography sx={mutedTextSx} variant="caption">
+                No workflow status data available.
+              </Typography>
+            ) : null}
+            {statusBreakdown.slice(0, 8).map((item) => (
+              <ProgressRow
+                key={item.name}
+                color={item.color}
+                label={item.name}
+                max={maxStatusCount}
+                value={item.count}
+              />
+            ))}
+          </Stack>
+        </Paper>
+
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: "1 / -1", overflow: "hidden" }}>
           <Stack
             direction={{ xs: "column", md: "row" }}
             alignItems={{ xs: "stretch", md: "center" }}
             justifyContent="space-between"
             spacing={1.5}
-            sx={{ p: 1.5, borderBottom: borderColor(theme) }}
+            sx={{ p: 2, borderBottom: `1px solid ${panelBorder(theme)}` }}
           >
-            <Box>
-              <Typography variant="h6" fontWeight={900}>
-                Client Overview
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Inventory and testing records grouped by client.
-              </Typography>
-            </Box>
+            <PanelTitle
+              icon={<Inventory2RoundedIcon />}
+              subtitle="Current record counts grouped by active application module"
+              title="Module Overview"
+            />
             <TextField
               size="small"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search client or code"
+              onChange={(event) => {
+                setPage(1);
+                setSearch(event.target.value);
+              }}
+              placeholder="Search module or section"
               InputProps={{ startAdornment: <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18, mr: 0.75 }} /> }}
-              sx={{ minWidth: { xs: "100%", md: 260 } }}
+              sx={{ minWidth: { xs: "100%", md: 300 } }}
             />
           </Stack>
 
-          <TableContainer sx={{ overflowX: "auto" }}>
+          <TableContainer sx={{ boxShadow: "none !important", overflowX: "hidden !important" }}>
             <Table size="small" sx={dashboardTableSx(theme)}>
               <TableHead>
                 <TableRow>
                   {[
-                    ["clientName", "Client Name"],
-                    ["totalInventory", "Total Inventory"],
-                    ["ongoingTesting", "Ongoing Testing"],
+                    ["section", "Section"],
+                    ["module", "Module"],
+                    ["total", "Total"],
+                    ["open", "Open / Active"],
                     ["completed", "Completed"],
-                    ["pending", "Pending"],
-                    ["failed", "Failed / With Issue"],
-                    ["totalRecords", "Total Records"],
+                    ["attention", "Attention"],
                   ].map(([key, label]) => (
-                    <TableCell key={key} align={key === "clientName" ? "left" : "center"}>
-                      <SortableHeader label={label} onClick={() => handleSort(key)} />
+                    <TableCell key={key} align="center">
+                      <SortableHeader
+                        justify="center"
+                        label={label}
+                        onClick={() => handleSort(key)}
+                      />
                     </TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {dashboardRows.length === 0 ? (
+                {moduleRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                      No client records found.
+                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      No dashboard modules found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  dashboardRows.map((row) => (
-                    <TableRow key={row.id} hover>
-                      <TableCell>
-                        <Typography fontWeight={800}>{row.clientName}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {row.clientCode || "No client code"}
+                  paginatedModuleRows.map((row) => (
+                    <TableRow key={`${row.section}-${row.module}`} hover>
+                      <TableCell align="center">
+                        <Chip label={row.section} size="small" sx={moduleChipSx(theme)} />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Typography sx={{ ...centerTextSx, fontSize: 12 }}>
+                          {row.module}
+                        </Typography>
+                        <Typography sx={{ ...mutedCenterTextSx, fontSize: 11, lineHeight: 1.25 }}>
+                          {row.description}
                         </Typography>
                       </TableCell>
-                      <NumberCell value={row.totalInventory} />
-                      <NumberCell value={row.ongoingTesting} />
-                      <NumberCell value={row.completed} color="#16a34a" />
-                      <NumberCell value={row.pending} color="#f59e0b" />
-                      <NumberCell value={row.failed} color="#dc2626" />
-                      <NumberCell value={row.totalRecords} color="#1976d2" />
+                      <NumberCell color={dashboardAccent.teal} value={row.total} />
+                      <NumberCell color={dashboardAccent.purple} value={row.open} />
+                      <NumberCell color={dashboardAccent.green} value={row.completed} />
+                      <NumberCell color={row.attention > 0 ? dashboardAccent.red : "#8a94a6"} value={row.attention} />
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
           </TableContainer>
-        </Paper>
-
-        <Paper elevation={0} sx={{ border: borderColor(theme), borderRadius: 2, p: 2 }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-            <Box>
-              <Typography variant="h6" fontWeight={900}>
-                Status Breakdown
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Visual count per workflow status.
-              </Typography>
-            </Box>
-            <TimelineRoundedIcon sx={{ color: "primary.main" }} />
-          </Stack>
-
-          <Stack spacing={1.25}>
-            {statusBreakdown.map((item) => (
-              <Box key={item.name}>
-                <Stack direction="row" justifyContent="space-between" spacing={1} sx={{ mb: 0.5 }}>
-                  <Typography variant="body2" fontWeight={800} noWrap>
-                    {item.name}
-                  </Typography>
-                  <Chip label={item.count} size="small" sx={{ bgcolor: `${item.color}22`, color: item.color, fontWeight: 900 }} />
-                </Stack>
-                <LinearProgress
-                  value={(item.count / maxStatusCount) * 100}
-                  variant="determinate"
-                  sx={{
-                    bgcolor: theme.palette.mode === "dark" ? "#334155" : "#e5e7eb",
-                    borderRadius: 99,
-                    height: 8,
-                    "& .MuiLinearProgress-bar": {
-                      bgcolor: item.color,
-                      borderRadius: 99,
-                    },
-                  }}
-                />
-              </Box>
-            ))}
-          </Stack>
+          <TablePaginationControls count={moduleRows.length} page={page} onChange={setPage} />
         </Paper>
       </Box>
     </Box>
   );
 }
 
-function DashboardHeader({ mode, onToggleMode, userDisplayName, userEmail }) {
-  const theme = useTheme();
+function HeroMetric({ label, value }) {
   return (
-    <Paper elevation={0} sx={{ border: borderColor(theme), borderRadius: 2, mb: 2, p: 1.5 }}>
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        alignItems={{ xs: "flex-start", md: "center" }}
-        justifyContent="space-between"
-        spacing={1.5}
-      >
-        <Stack direction="row" alignItems="center" spacing={1.25}>
-          <Box
-            sx={{
-              alignItems: "center",
-              bgcolor: "#e8f2ff",
-              borderRadius: 1.5,
-              color: "#1f5f99",
-              display: "flex",
-              height: 42,
-              justifyContent: "center",
-              width: 42,
-            }}
-          >
-            <Inventory2RoundedIcon fontSize="small" />
-          </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
-              Endivio Device Management
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Dashboard overview for inventory and testing operations.
-            </Typography>
-          </Box>
-        </Stack>
+    <Box sx={heroMetricSx}>
+      <Typography sx={{ ...mutedTextSx, fontSize: 11 }} variant="caption">
+        {label}
+      </Typography>
+      <Typography sx={{ ...leftTextSx, fontSize: 22, lineHeight: 1.1 }} variant="h5">
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
-        <Stack direction="row" alignItems="center" spacing={1.25}>
-          <Tooltip title={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-            <Stack direction="row" alignItems="center" spacing={0.5}>
-              {mode === "dark" ? <DarkModeRoundedIcon fontSize="small" /> : <LightModeRoundedIcon fontSize="small" />}
-              <Switch checked={mode === "dark"} onChange={onToggleMode} size="small" />
-            </Stack>
-          </Tooltip>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Avatar sx={{ bgcolor: "#1f5f99", height: 34, width: 34 }}>{getInitials(userDisplayName || userEmail || "Admin User")}</Avatar>
-            <Box sx={{ display: { xs: "none", sm: "block" } }}>
-              <Typography variant="body2" fontWeight={900}>
-                {userDisplayName || userEmail || "Admin User"}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Signed in
-              </Typography>
-            </Box>
-          </Stack>
-        </Stack>
+function SummaryCard({ color, description, icon, title, value }) {
+  return (
+    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minHeight: 58 }}>
+      <Box sx={summaryIconSx(color)}>{icon}</Box>
+      <Stack alignItems="center" spacing={0.25} sx={{ flex: 1, minWidth: 0 }}>
+        <Typography sx={{ ...mutedCenterTextSx, fontSize: 11 }} variant="caption">
+          {title}
+        </Typography>
+        <Typography sx={{ ...centerTextSx, fontSize: 24, lineHeight: 1.1 }} variant="h5">
+          {value}
+        </Typography>
+        <Typography sx={{ ...mutedCenterTextSx, fontSize: 11 }} variant="caption">
+          {description}
+        </Typography>
       </Stack>
-    </Paper>
+    </Stack>
+  );
+}
+
+function PanelTitle({ icon, subtitle, title }) {
+  return (
+    <Stack direction="row" spacing={1.15} alignItems="center">
+      <Box sx={panelIconSx}>{icon}</Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ ...leftTextSx, fontSize: 16 }} variant="h6">
+          {title}
+        </Typography>
+        <Typography sx={{ ...mutedTextSx, fontSize: 11 }} variant="caption">
+          {subtitle}
+        </Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+function ProgressRow({ color, label, max, value }) {
+  return (
+    <Box>
+      <Stack direction="row" justifyContent="space-between" spacing={1} sx={{ mb: 0.55 }}>
+        <Typography sx={leftTextSx} variant="body2" noWrap>
+          {label}
+        </Typography>
+        <Chip label={value} size="small" sx={valueChipSx(color)} />
+      </Stack>
+      <LinearProgress
+        value={(value / max) * 100}
+        variant="determinate"
+        sx={progressSx(color)}
+      />
+    </Box>
+  );
+}
+
+function SortableHeader({ justify = "center", label, onClick }) {
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      justifyContent={justify}
+      spacing={0.25}
+      onClick={onClick}
+      sx={{
+        cursor: "pointer",
+        justifyContent: `${justify} !important`,
+        textAlign: "center !important",
+        userSelect: "none",
+        width: "100%",
+      }}
+    >
+      <Typography component="span" sx={{ ...centerTextSx, fontSize: 11 }}>
+        {label}
+      </Typography>
+      <SortRoundedIcon sx={{ fontSize: 14, opacity: 0.65 }} />
+    </Stack>
+  );
+}
+
+function NumberCell({ color = "#8a94a6", value }) {
+  return (
+    <TableCell align="center">
+      <Typography sx={{ color, fontSize: 12 }}>
+        {value}
+      </Typography>
+    </TableCell>
   );
 }
 
 function getInitials(value) {
-  // Build avatar initials from the visible display name instead of a hardcoded label.
   return String(value || "User")
     .split(/\s+/)
     .filter(Boolean)
@@ -447,91 +815,47 @@ function getInitials(value) {
     .join("") || "U";
 }
 
-function SummaryCard({ color, description, icon, title, value }) {
-  const theme = useTheme();
-  return (
-    <Paper elevation={0} sx={{ border: borderColor(theme), borderRadius: 2, p: 1.75 }}>
-      <Stack direction="row" spacing={1.25} alignItems="flex-start">
-        <Box
-          sx={{
-            alignItems: "center",
-            bgcolor: `${color}18`,
-            borderRadius: 1.5,
-            color,
-            display: "flex",
-            height: 40,
-            justifyContent: "center",
-            width: 40,
-          }}
-        >
-          {icon}
-        </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" color="text.secondary" fontWeight={800}>
-            {title}
-          </Typography>
-          <Typography variant="h4" fontWeight={950} sx={{ color: "text.primary", my: 0.25 }}>
-            {value}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {description}
-          </Typography>
-        </Box>
-      </Stack>
-    </Paper>
-  );
+function getRows(result) {
+  if (result?.error) {
+    console.warn("Dashboard source load failed:", result.error.message);
+    return [];
+  }
+  return result?.data || [];
 }
 
-function SortableHeader({ label, onClick }) {
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="center"
-      spacing={0.25}
-      onClick={onClick}
-      sx={{ cursor: "pointer", userSelect: "none" }}
-    >
-      <Typography component="span" fontWeight={900} sx={{ fontSize: 11 }}>
-        {label}
-      </Typography>
-      <SortRoundedIcon sx={{ fontSize: 14, opacity: 0.65 }} />
-    </Stack>
-  );
+function buildWorkflowCounts(records, userEmail) {
+  const normalizedEmail = String(userEmail || "").toLowerCase();
+  const isDone = (record) => record.workflow_status === "Done Repair Device";
+  return {
+    allActive: records.filter((record) => record.assigned_to_email && !isDone(record)).length,
+    done: records.filter(isDone).length,
+    myActive: records.filter((record) => String(record.assigned_to_email || "").toLowerCase() === normalizedEmail && !isDone(record)).length,
+    newQueue: records.filter((record) => !record.assigned_to_email && isNewRepairStage(record.workflow_status)).length,
+    seniorQueue: records.filter((record) => !record.assigned_to_email && isSeniorStage(record.workflow_status)).length,
+    supportQueue: records.filter((record) => !record.assigned_to_email && isSupportStage(record.workflow_status)).length,
+  };
 }
 
-function NumberCell({ color = "#334155", value }) {
-  return (
-    <TableCell align="center">
-      <Typography fontWeight={900} sx={{ color }}>
-        {value}
-      </Typography>
-    </TableCell>
-  );
+function countByStatus(records, statusById, predicate) {
+  return records.filter((record) => predicate(statusById.get(record.status_id)?.name)).length;
 }
 
-const dashboardTableSx = (theme) => ({
-  minWidth: 900,
-  "& th": {
-    bgcolor: theme.palette.mode === "dark" ? "#334155" : "#d9d9d9",
-    fontSize: 11,
-    fontWeight: 900,
-    lineHeight: 1.2,
-    px: 0.75,
-    py: 0.9,
-  },
-  "& td": {
-    fontSize: 11,
-    lineHeight: 1.25,
-    px: 0.75,
-    py: 0.75,
-  },
-  "& td, & th": {
-    borderColor: theme.palette.mode === "dark" ? "#334155" : "#dddddd",
-  },
-});
+function formatPercent(value, total) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
 
-const borderColor = (theme) => `1px solid ${theme.palette.mode === "dark" ? "#334155" : "#dde5ef"}`;
+function isNewRepairStage(value) {
+  return value === "Repair By" || value === "For Testing";
+}
+
+function isSupportStage(value) {
+  return value === "Tested By" || value === "Test By" || value === "Checked By (Senior)";
+}
+
+function isSeniorStage(value) {
+  return value === "Senior Tested By" || value === "Senior Test By" || value === "Checked By (Supervisor)";
+}
 
 const isCompleted = (statusName) => {
   const value = String(statusName || "").toLowerCase();
@@ -540,22 +864,192 @@ const isCompleted = (statusName) => {
 
 const isFailed = (statusName) => {
   const value = String(statusName || "").toLowerCase();
-  return (
-    value.includes("fail") ||
-    value.includes("defect") ||
-    value.includes("issue") ||
-    value.includes("cancel")
-  );
+  return value.includes("fail") || value.includes("defect") || value.includes("issue") || value.includes("cancel");
 };
 
 const getStatusColor = (statusName, statuses) => {
   const fromDb = statuses.find((status) => status.name === statusName)?.color;
   if (fromDb) return fromDb;
   const value = String(statusName || "").toLowerCase();
-  if (value.includes("inventory")) return "#1976d2";
-  if (value.includes("ongoing")) return "#fb923c";
-  if (isCompleted(statusName)) return "#16a34a";
-  if (isFailed(statusName)) return "#dc2626";
-  if (value.includes("pending")) return "#f59e0b";
-  return "#64748b";
+  if (value.includes("repair by")) return dashboardAccent.purple;
+  if (value.includes("tested by")) return dashboardAccent.blue;
+  if (value.includes("senior")) return dashboardAccent.orange;
+  if (value.includes("inventory")) return dashboardAccent.teal;
+  if (value.includes("ongoing")) return dashboardAccent.purple;
+  if (isCompleted(statusName) || value.includes("done")) return dashboardAccent.green;
+  if (isFailed(statusName)) return dashboardAccent.red;
+  if (value.includes("pending")) return dashboardAccent.orange;
+  return "#8a94a6";
 };
+
+const dashboardRootSx = (theme) => ({
+  minHeight: "100svh",
+  p: { xs: 2, md: 3 },
+  textAlign: "left",
+  "& .MuiPaper-root::before, & .MuiPaper-root::after": {
+    display: "none !important",
+  },
+  "& .MuiTableContainer-root": {
+    borderRadius: "16px !important",
+  },
+  "& .MuiTableCell-root": {
+    borderColor: panelBorder(theme),
+  },
+});
+
+const dashboardGridSx = {
+  display: "grid",
+  gap: 2,
+  gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+};
+
+const vuexyCardSx = (theme) => ({
+  bgcolor: panelBg(theme),
+  border: `1px solid ${panelBorder(theme)}`,
+  borderRadius: "18px !important",
+  boxShadow: panelShadow(theme),
+  color: "text.primary",
+});
+
+const panelBg = (theme) => (theme.palette.mode === "dark" ? "#25293c" : "#ffffff");
+
+const panelBorder = (theme) => (theme.palette.mode === "dark" ? "rgba(255,255,255,0.10)" : "#e3e8f2");
+
+const panelShadow = (theme) =>
+  theme.palette.mode === "dark"
+    ? "0 14px 36px rgba(0,0,0,0.28)"
+    : "0 16px 44px rgba(15,23,42,0.08)";
+
+const leftTextSx = {
+  color: "text.primary",
+  fontWeight: "400 !important",
+  lineHeight: 1.25,
+  textAlign: "left !important",
+};
+
+const centerTextSx = {
+  color: "text.primary",
+  fontWeight: "400 !important",
+  lineHeight: 1.25,
+  textAlign: "center !important",
+};
+
+const mutedTextSx = {
+  color: "text.secondary",
+  fontWeight: "400 !important",
+  lineHeight: 1.35,
+  textAlign: "left !important",
+};
+
+const mutedCenterTextSx = {
+  color: "text.secondary",
+  fontWeight: "400 !important",
+  lineHeight: 1.2,
+  textAlign: "center !important",
+};
+
+const heroMetricSx = {
+  border: "1px solid rgba(115,103,240,0.22)",
+  borderRadius: "14px",
+  minWidth: 138,
+  px: 1.4,
+  py: 1,
+};
+
+const heroRingSx = (percent) => ({
+  alignItems: "center",
+  background: `conic-gradient(${dashboardAccent.purple} ${percent * 3.6}deg, rgba(115,103,240,0.16) 0deg)`,
+  borderRadius: "50%",
+  display: "flex",
+  height: 142,
+  justifyContent: "center",
+  minWidth: 142,
+  width: 142,
+});
+
+const heroRingInnerSx = (theme) => ({
+  alignItems: "center",
+  bgcolor: panelBg(theme),
+  borderRadius: "50%",
+  display: "flex",
+  flexDirection: "column",
+  height: 104,
+  justifyContent: "center",
+  width: 104,
+});
+
+const summaryIconSx = (color) => ({
+  alignItems: "center",
+  bgcolor: `${color}1f`,
+  borderRadius: "14px",
+  color,
+  display: "flex",
+  flex: "0 0 auto",
+  height: 42,
+  justifyContent: "center",
+  width: 42,
+});
+
+const panelIconSx = {
+  alignItems: "center",
+  bgcolor: "rgba(115,103,240,0.14)",
+  borderRadius: "12px",
+  color: dashboardAccent.purple,
+  display: "flex",
+  height: 38,
+  justifyContent: "center",
+  width: 38,
+};
+
+const progressSx = (color) => ({
+  bgcolor: "rgba(138,148,166,0.20)",
+  borderRadius: 999,
+  height: 7,
+  mt: 0.75,
+  "& .MuiLinearProgress-bar": {
+    bgcolor: color,
+    borderRadius: 999,
+  },
+});
+
+const valueChipSx = (color) => ({
+  bgcolor: `${color}22`,
+  color,
+  height: 22,
+  minWidth: 34,
+});
+
+const moduleChipSx = (theme) => ({
+  bgcolor: theme.palette.mode === "dark" ? "rgba(115,103,240,0.16)" : "rgba(115,103,240,0.10)",
+  color: dashboardAccent.purple,
+});
+
+const dashboardTableSx = (theme) => ({
+  minWidth: 900,
+  "& th": {
+    bgcolor: theme.palette.mode === "dark" ? "#2f3349" : "#f3f6fb",
+    fontSize: 11,
+    lineHeight: 1.2,
+    px: 1,
+    py: 1,
+    textAlign: "center !important",
+    verticalAlign: "middle !important",
+  },
+  "& th .MuiStack-root": {
+    justifyContent: "center !important",
+    textAlign: "center !important",
+    width: "100%",
+  },
+  "& th .MuiTypography-root": {
+    textAlign: "center !important",
+  },
+  "& td": {
+    fontSize: 11,
+    lineHeight: 1.25,
+    px: 1,
+    py: 0.85,
+  },
+  "& tbody tr:hover": {
+    bgcolor: theme.palette.mode === "dark" ? "rgba(115,103,240,0.12) !important" : "rgba(115,103,240,0.06) !important",
+  },
+});

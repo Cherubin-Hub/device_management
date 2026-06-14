@@ -6,7 +6,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Paper,
   Stack,
   Table,
@@ -23,11 +22,11 @@ import {
   Tab,
 } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import EditRoundedIcon from "@mui/icons-material/EditRounded";
-import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { useEffect, useMemo, useState } from "react";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
+import { paginateRows } from "../src/lib/pagination.js";
 import { supabase } from "../src/lib/supabase.js";
 
 export default function ClientStatusPage() {
@@ -43,6 +42,8 @@ export default function ClientStatusPage() {
   const [dialogMode, setDialogMode] = useState(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  // Track the active configuration page so each tab renders at most 20 rows.
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -287,6 +288,11 @@ export default function ClientStatusPage() {
   const itemType = tabValue === 0 ? "client" : tabValue === 1 ? "status" : "deviceType";
   // Keep loading and empty states aligned to the active tab's column count.
   const tableColumnCount = itemType === "deviceType" ? 4 : 5;
+  // Slice the active configuration rows while keeping edit/delete ids unchanged.
+  const paginatedItems = useMemo(
+    () => paginateRows(currentItems, page),
+    [currentItems, page]
+  );
   const selectedItem = useMemo(
     () => currentItems.find((item) => item.id === selectedId) || null,
     [currentItems, selectedId]
@@ -302,13 +308,14 @@ export default function ClientStatusPage() {
       }}
     >
       <Stack
+        className="module-page-header"
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", md: "center" }}
         spacing={1.5}
         sx={{ mb: 2 }}
       >
-        <Stack direction="row" spacing={1.5} alignItems="center">
+        <Stack className="module-page-heading" direction="row" spacing={1.5} alignItems="center">
           <Box
             sx={{
               alignItems: "center",
@@ -323,12 +330,12 @@ export default function ClientStatusPage() {
           >
             <SettingsRoundedIcon fontSize="small" />
           </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
+          <Box className="module-page-copy">
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               Configurations
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Manage clients and statuses. Enable or disable them as needed.
+            <Typography className="module-page-description" variant="caption" color="text.secondary">
+              Manage clients, status, and device types. Enable or disable them as needed.
             </Typography>
           </Box>
         </Stack>
@@ -376,6 +383,7 @@ export default function ClientStatusPage() {
             }}
             value={tabValue}
             onChange={(_, newValue) => {
+              setPage(1);
               setTabValue(newValue);
               setSelectedId(null);
               setError("");
@@ -446,7 +454,7 @@ export default function ClientStatusPage() {
                   </TableCell>
                 </TableRow>
               ) : null}
-              {currentItems.map((item) => {
+              {paginatedItems.map((item) => {
                 const selected = item.id === selectedId;
                 return (
                   <TableRow
@@ -454,6 +462,11 @@ export default function ClientStatusPage() {
                     hover
                     selected={selected}
                     onClick={() => setSelectedId(item.id)}
+                    onDoubleClick={() => {
+                      // Double-click is the only edit entry point so the action column stays focused on Delete.
+                      setSelectedId(item.id);
+                      setDialogMode("edit");
+                    }}
                     sx={{
                       cursor: "pointer",
                       "& th": { fontWeight: 800 },
@@ -539,32 +552,26 @@ export default function ClientStatusPage() {
                           transform: "translate(-50%, -50%)",
                         }}
                       >
-                        <Tooltip title="Edit">
-                          <IconButton
-                            size="small"
-                            sx={{ p: 0.5 }}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedId(item.id);
-                              setDialogMode("edit");
-                            }}
-                          >
-                            <EditRoundedIcon sx={{ fontSize: 17 }} />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton
+                        <Tooltip title={`Delete ${getConfigTypeTitle(itemType)}`}>
+                          <Button
                             size="small"
                             color="error"
-                            sx={{ p: 0.5 }}
+                            variant="outlined"
+                            sx={{
+                              fontSize: 11,
+                              height: 28,
+                              minWidth: 62,
+                              px: 1,
+                              textTransform: "none",
+                            }}
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedId(item.id);
                               handleDeleteOption(itemType, item.id);
                             }}
                           >
-                            <DeleteRoundedIcon sx={{ fontSize: 17 }} />
-                          </IconButton>
+                            Delete
+                          </Button>
                         </Tooltip>
                       </Stack>
                     </TableCell>
@@ -574,6 +581,7 @@ export default function ClientStatusPage() {
             </TableBody>
           </Table>
         </TableContainer>
+        <TablePaginationControls count={currentItems.length} page={page} onChange={setPage} />
       </Paper>
 
       {dialogMode ? (
@@ -662,9 +670,24 @@ function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, o
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog
+      open
+      onClose={onClose}
+      maxWidth="xs"
+      fullWidth
+      slotProps={{
+        // Keep configuration modals compact and prevent inner horizontal/vertical scrollbars.
+        paper: {
+          className: "configuration-dialog-paper",
+          sx: {
+            maxHeight: "none",
+            overflow: "hidden",
+          },
+        },
+      }}
+    >
       <DialogTitle fontWeight={900}>{title}</DialogTitle>
-      <DialogContent>
+      <DialogContent sx={{ overflow: "hidden" }}>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
             label={getConfigNameColumn(itemType)}

@@ -1,7 +1,6 @@
 import {
   Box,
   Button,
-  Chip,
   Paper,
   Stack,
   Table,
@@ -14,12 +13,17 @@ import {
   Typography,
   CircularProgress,
   Alert,
+  Tooltip,
 } from "@mui/material";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
+import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
+import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import { useEffect, useMemo, useState } from "react";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
+import { paginateRows } from "../src/lib/pagination.js";
 import { formatPersonName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
@@ -31,6 +35,8 @@ export default function OngoingTestingPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [uploadingId, setUploadingId] = useState(null);
+  // Store the image selected for preview so table rows can stay clean and thumbnail-free.
+  const [previewImage, setPreviewImage] = useState(null);
   const [filters, setFilters] = useState({
     receivedFrom: "",
     receivedTo: "",
@@ -39,6 +45,8 @@ export default function OngoingTestingPage() {
     receivedFrom: "",
     receivedTo: "",
   });
+  // Track the active table page so Ongoing Testing renders only 20 rows at once.
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -108,6 +116,12 @@ export default function OngoingTestingPage() {
     [filters, items]
   );
 
+  // Slice the visible testing rows for the current page without changing upload/edit behavior.
+  const paginatedItems = useMemo(
+    () => paginateRows(displayedItems, page),
+    [displayedItems, page]
+  );
+
   const handleImageUploadForItem = async (itemId, file) => {
     if (!file) return;
     const previousSelectedId = selectedId;
@@ -164,15 +178,38 @@ export default function OngoingTestingPage() {
     }
   };
 
+  const handleImageDeleteForItem = async (itemId) => {
+    // Deleting clears the stored URL from the record; the storage object can remain safely orphaned.
+    const previousSelectedId = selectedId;
+    setSelectedId(itemId);
+    const { error: updateError } = await supabase
+      .from("ongoing_testing_items")
+      .update({ picture_url: null })
+      .eq("id", itemId);
+
+    if (updateError) {
+      setError(`Failed to delete image: ${updateError.message}`);
+      setSelectedId(previousSelectedId);
+      return;
+    }
+
+    setItems((current) =>
+      current.map((item) => (item.id === itemId ? { ...item, pictureUrl: "" } : item))
+    );
+    setSelectedId(previousSelectedId);
+  };
+
   const updateFilter = (field) => (event) => {
     setDraftFilters((current) => ({ ...current, [field]: event.target.value }));
   };
 
   const applyFilters = () => {
+    setPage(1);
     setFilters(draftFilters);
   };
 
   const clearFilters = () => {
+    setPage(1);
     setFilters({ receivedFrom: "", receivedTo: "" });
     setDraftFilters({ receivedFrom: "", receivedTo: "" });
   };
@@ -194,13 +231,14 @@ export default function OngoingTestingPage() {
       )}
 
       <Stack
+        className="module-page-header"
         direction={{ xs: "column", lg: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", lg: "center" }}
         spacing={1.5}
         sx={{ mb: 2 }}
       >
-        <Stack direction="row" spacing={1.5} alignItems="center">
+        <Stack className="module-page-heading" direction="row" spacing={1.5} alignItems="center">
           <Box
             sx={{
               alignItems: "center",
@@ -215,12 +253,12 @@ export default function OngoingTestingPage() {
           >
             <AssessmentRoundedIcon fontSize="small" />
           </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
-              Ongoing Testing
+          <Box className="module-page-copy">
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
+              Repair Tracking
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Manage devices under testing.
+            <Typography className="module-page-description" variant="caption" color="text.secondary">
+              Manage devices under repair.
             </Typography>
           </Box>
         </Stack>
@@ -280,6 +318,7 @@ export default function OngoingTestingPage() {
               textAlign: "center",
             },
             "& td": {
+              borderBottom: "0 !important",
               fontSize: 11,
               lineHeight: 1.25,
               px: 0.5,
@@ -341,7 +380,7 @@ export default function OngoingTestingPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              displayedItems.map((item) => (
+              paginatedItems.map((item) => (
                 <TableRow
                   key={item.id}
                   onClick={() => setSelectedId(item.id)}
@@ -349,56 +388,72 @@ export default function OngoingTestingPage() {
                 >
                   <TruncatedCell align="center">{item.clientCode || "-"}</TruncatedCell>
                   <TruncatedCell align="center">{item.dateReceived}</TruncatedCell>
-                  <TableCell align="center"><PackageChip value={item.packageStyle} /></TableCell>
+                  <TruncatedCell align="center">{item.packageStyle || "-"}</TruncatedCell>
                   <TableCell align="center">
-                    {item.pictureUrl ? (
-                      <Box
-                        component="img"
-                        src={item.pictureUrl}
-                        sx={{ width: 44, height: 34, borderRadius: 1, objectFit: "cover", display: "block", mx: "auto", mb: 0.5 }}
-                      />
-                    ) : (
-                      null
-                    )}
-                    <Button
-                      component="label"
-                      size="small"
-                      variant="text"
-                      startIcon={uploadingId === item.id ? <CircularProgress size={12} /> : <ImageRoundedIcon fontSize="small" />}
-                      sx={{ minWidth: 0, px: 0.25, py: 0, fontSize: 10, textTransform: "none", "& .MuiButton-startIcon": { mr: 0.25 } }}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {item.pictureUrl ? "Change" : "Upload"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        hidden
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file) handleImageUploadForItem(item.id, file);
-                        }}
-                      />
-                    </Button>
+                    <Stack direction="row" spacing={0.25} justifyContent="center" sx={{ minWidth: 0 }}>
+                      {item.pictureUrl ? (
+                        <>
+                          <Tooltip title="View picture">
+                          <Button
+                            size="small"
+                            variant="text"
+                            aria-label="View picture"
+                            sx={{ minWidth: 24, px: 0, py: 0, textTransform: "none" }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPreviewImage(item.pictureUrl);
+                            }}
+                          >
+                            <VisibilityRoundedIcon sx={{ fontSize: 14 }} />
+                          </Button>
+                          </Tooltip>
+                          <Tooltip title="Delete picture">
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="error"
+                            aria-label="Delete picture"
+                            sx={{ minWidth: 24, px: 0, py: 0, textTransform: "none" }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleImageDeleteForItem(item.id);
+                            }}
+                          >
+                            <DeleteRoundedIcon sx={{ fontSize: 14 }} />
+                          </Button>
+                          </Tooltip>
+                        </>
+                      ) : (
+                        <Tooltip title="Upload picture">
+                        <Button
+                          component="label"
+                          size="small"
+                          variant="text"
+                          aria-label="Upload picture"
+                          sx={{ minWidth: 24, px: 0, py: 0, textTransform: "none" }}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {uploadingId === item.id ? <CircularProgress size={12} /> : <ImageRoundedIcon sx={{ fontSize: 14 }} />}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            hidden
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) handleImageUploadForItem(item.id, file);
+                            }}
+                          />
+                        </Button>
+                        </Tooltip>
+                      )}
+                    </Stack>
                   </TableCell>
                   <TruncatedCell align="center">{item.model}</TruncatedCell>
                   <TruncatedCell align="center">{item.withAdapter}</TruncatedCell>
                   <TruncatedCell align="center">{item.serialNumber}</TruncatedCell>
                   <TableCell align="center">
                     {item.status ? (
-                      <Chip
-                        label={item.status.name}
-                        size="small"
-                        sx={{
-                          bgcolor: item.status.color || "#6b7280",
-                          color: "#ffffff",
-                          fontWeight: 400,
-                          maxWidth: "100%",
-                          "& .MuiChip-label": {
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          },
-                        }}
-                      />
+                      <TruncatedText color={item.status.color || "inherit"}>{item.status.name}</TruncatedText>
                     ) : (
                       "-"
                     )}
@@ -412,7 +467,59 @@ export default function OngoingTestingPage() {
             )}
           </TableBody>
         </Table>
+        <TablePaginationControls count={displayedItems.length} page={page} onChange={setPage} />
       </TableContainer>
+
+      {previewImage ? (
+        <Box
+          onClick={() => setPreviewImage(null)}
+          sx={{
+            alignItems: "center",
+            bgcolor: "rgba(0, 0, 0, 0.72)",
+            display: "flex",
+            inset: 0,
+            justifyContent: "center",
+            overflow: "hidden",
+            position: "fixed",
+            zIndex: 1400,
+          }}
+        >
+          <Box
+            onClick={(event) => event.stopPropagation()}
+            sx={{
+              bgcolor: "background.paper",
+              boxSizing: "border-box",
+              display: "grid",
+              gridTemplateRows: "auto minmax(0, 1fr)",
+              height: "min(760px, 82vh)",
+              maxHeight: "82vh",
+              maxWidth: "90vw",
+              overflow: "hidden",
+              p: 2,
+              width: "min(820px, 90vw)",
+            }}
+          >
+            <Typography variant="subtitle1" sx={{ mb: 1, textAlign: "center" }}>
+              Package Picture
+            </Typography>
+            <Box sx={{ alignItems: "center", display: "flex", justifyContent: "center", minHeight: 0, overflow: "hidden" }}>
+              <Box
+                component="img"
+                src={previewImage}
+                alt="Package preview"
+                sx={{
+                  display: "block",
+                  height: "100%",
+                  maxHeight: "100%",
+                  maxWidth: "100%",
+                  objectFit: "contain",
+                  width: "100%",
+                }}
+              />
+            </Box>
+          </Box>
+        </Box>
+      ) : null}
 
       {/* {selectedItem && (
         <Paper sx={{ mt: 2, p: 2 }}>
@@ -511,13 +618,6 @@ function isInsideRange(date, from, to) {
   return true;
 }
 
-function PackageChip({ value }) {
-  if (!value) return <>-</>;
-  const color = value === "Box" || value === "With Box" ? "#d9f2c7" : value === "Plastic" ? "#bfe3ff" : "#ffe49a";
-  const textColor = value === "Plastic" ? "#075985" : value === "Paper Bag" ? "#92400e" : "#047857";
-  return <Chip label={value} size="small" sx={{ bgcolor: color, color: textColor, fontWeight: 400, minWidth: 72 }} />;
-}
-
 function getLocalDateString() {
   // Build today's date from the browser's local calendar so due-date colors match the user's day.
   const today = new Date();
@@ -555,22 +655,22 @@ function getTestingRowSx(item, isSelected) {
   const isHealthySupport = statusName === "ongoing support" && !isOverdue && !isNearDue;
   // Pick a soft row color so status is obvious without hurting readability.
   const baseColor = isOverdue
-    ? "#fee2e2"
+    ? "var(--testing-row-overdue)"
     : isNearDue
-      ? "#ffedd5"
+      ? "var(--testing-row-warning)"
       : isHealthySupport
-        ? "#dcfce7"
+        ? "var(--testing-row-healthy)"
         : isSelected
-          ? "#e8f2ff"
+          ? "var(--testing-row-selected)"
           : "transparent";
   // Pick a slightly stronger hover color for the same row state.
   const hoverColor = isOverdue
-    ? "#fecaca"
+    ? "var(--testing-row-overdue-hover)"
     : isNearDue
-      ? "#fed7aa"
+      ? "var(--testing-row-warning-hover)"
       : isHealthySupport
-        ? "#bbf7d0"
-        : "#f3f4f6";
+        ? "var(--testing-row-healthy-hover)"
+        : "var(--testing-row-default-hover)";
   // Return a reusable MUI sx object for every generated testing row.
   return {
     bgcolor: baseColor,
@@ -600,6 +700,25 @@ function TruncatedCell({ align = "left", children }) {
         {children || "-"}
       </Box>
     </TableCell>
+  );
+}
+
+function TruncatedText({ children, color = "inherit" }) {
+  // Plain text avoids chip/background artifacts while still keeping long values inside the cell.
+  return (
+    <Box
+      component="span"
+      sx={{
+        color,
+        display: "block",
+        maxWidth: "100%",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </Box>
   );
 }
 

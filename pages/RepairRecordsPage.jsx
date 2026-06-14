@@ -29,6 +29,9 @@ import { useEffect, useMemo, useState } from "react";
 import { archiveRecord } from "../src/lib/archiveRecord.js";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { supabase } from "../src/lib/supabase.js";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
+import { paginateRows } from "../src/lib/pagination.js";
+import * as XLSX from "xlsx-js-style";
 
 const blankDevice = {
   company: "",
@@ -54,6 +57,54 @@ const blankDevice = {
 const packageStyles = ["With Box", "Plastic", "Paper Bag"];
 const adapterOptions = ["Yes", "No"];
 
+const compactSelectMenuProps = {
+  marginThreshold: 12,
+  MenuListProps: {
+    dense: true,
+    className: "compact-select-menu-list",
+    sx: {
+      maxHeight: 220,
+      overflowX: "hidden",
+      overflowY: "hidden",
+      p: 0,
+      "& .MuiMenuItem-root": {
+        minHeight: 34,
+        px: 1.5,
+        py: 0.75,
+      },
+    },
+  },
+  PaperProps: {
+    className: "compact-select-menu-paper",
+    sx: {
+      maxHeight: "220px !important",
+      maxWidth: "420px !important",
+      minWidth: "260px !important",
+      overflow: "hidden !important",
+      width: "auto !important",
+    },
+  },
+  slotProps: {
+    paper: {
+      className: "compact-select-menu-paper",
+      sx: {
+        maxHeight: "220px !important",
+        maxWidth: "420px !important",
+        minWidth: "260px !important",
+        overflow: "hidden !important",
+        width: "auto !important",
+      },
+    },
+  },
+};
+
+// Pass the same compact menu settings through MUI's current TextField select API.
+const compactSelectSlotProps = {
+  select: {
+    MenuProps: compactSelectMenuProps,
+  },
+};
+
 export default function DeviceManagementPage() {
   // Store inventory rows exactly as the UI table consumes them.
   const [items, setItems] = useState([]);
@@ -78,6 +129,8 @@ export default function DeviceManagementPage() {
     deliveredFrom: "",
     deliveredTo: "",
   });
+  // Track the visible table page so only 20 inventory rows render at a time.
+  const [page, setPage] = useState(1);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
@@ -177,6 +230,12 @@ export default function DeviceManagementPage() {
         return receivedOk && deliveredOk;
       }),
     [filters, items]
+  );
+
+  // Keep the full filtered list available for export while showing only one page in the table.
+  const paginatedItems = useMemo(
+    () => paginateRows(displayedItems, page),
+    [displayedItems, page]
   );
 
   const handleSave = async (form) => {
@@ -330,13 +389,14 @@ export default function DeviceManagementPage() {
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
       <Stack
+        className="module-page-header"
         direction={{ xs: "column", lg: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", lg: "center" }}
         spacing={1.5}
         sx={{ mb: 1.75 }}
       >
-        <Stack direction="row" spacing={1.5} alignItems="center">
+        <Stack className="module-page-heading" direction="row" spacing={1.5} alignItems="center">
           <Box
             sx={{
               alignItems: "center",
@@ -349,14 +409,14 @@ export default function DeviceManagementPage() {
               width: 38,
             }}
           >
-            <Inventory2RoundedIcon fontSize="small" />
+              <Inventory2RoundedIcon fontSize="small" />
           </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
-              Device Inventory
+          <Box className="module-page-copy">
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
+              Repair Records
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Track device movement, QA dates, delivery, and remarks.
+            <Typography className="module-page-description" variant="caption" color="text.secondary">
+              Manage device movement, QA dates, delivery, and remarks.
             </Typography>
           </Box>
         </Stack>
@@ -397,7 +457,10 @@ export default function DeviceManagementPage() {
             size="small"
             variant="outlined"
             startIcon={<FilterAltRoundedIcon />}
-            onClick={() => setFilters(draftFilters)}
+            onClick={() => {
+              setPage(1);
+              setFilters(draftFilters);
+            }}
             sx={{ textTransform: "none" }}
           >
             Apply
@@ -413,6 +476,7 @@ export default function DeviceManagementPage() {
                 deliveredFrom: "",
                 deliveredTo: "",
               };
+              setPage(1);
               setDraftFilters(emptyFilters);
               setFilters(emptyFilters);
             }}
@@ -430,7 +494,7 @@ export default function DeviceManagementPage() {
       ) : null}
 
       <Paper elevation={0} sx={{ border: "1px solid #dde5ef", borderRadius: 2, overflow: "hidden" }}>
-        <TableContainer sx={{ overflowX: "auto" }}>
+        <TableContainer className="inventory-records-table-scroll" sx={{ overflowX: "auto" }}>
           <Table
             size="small"
             sx={{
@@ -493,7 +557,7 @@ export default function DeviceManagementPage() {
                   </TableCell>
                 </TableRow>
               ) : null}
-              {displayedItems.map((item) => {
+              {paginatedItems.map((item) => {
                 const status = statuses.find((entry) => entry.id === item.statusId);
                 return (
                   <TableRow key={item.id} hover selected={item.id === selectedId} onClick={() => setSelectedId(item.id)} sx={{ cursor: "pointer" }}>
@@ -503,7 +567,7 @@ export default function DeviceManagementPage() {
                     <TableCell align="center">{formatDisplayDate(item.dateReceived)}</TableCell>
                     <TableCell align="center"><PackageChip value={item.packageStyle} /></TableCell>
                     <TableCell align="center">{item.cstNumber || "-"}</TableCell>
-                    <TableCell align="center" sx={{ bgcolor: item.ticketNumber ? "#f0f9ff" : "inherit" }}>
+                    <TableCell align="center">
                       {item.ticketNumber || "-"}
                     </TableCell>
                     <TableCell align="center">{item.snNumber || "-"}</TableCell>
@@ -527,6 +591,7 @@ export default function DeviceManagementPage() {
             </TableBody>
           </Table>
         </TableContainer>
+        <TablePaginationControls count={displayedItems.length} page={page} onChange={setPage} />
       </Paper>
 
       {dialogMode ? (
@@ -570,10 +635,64 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
   const statusDisplayValue = automaticStatus?.name || automaticStatusName;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-      <DialogTitle fontWeight={900}>{title}</DialogTitle>
-      <DialogContent>
-        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" }, pt: 1 }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      scroll="paper"
+      sx={{
+        "& .MuiDialog-container": {
+          overflow: "hidden !important",
+        },
+        "& .MuiDialog-paper": {
+          boxSizing: "border-box",
+          maxHeight: "none !important",
+          maxWidth: "calc(100vw - 120px) !important",
+          overflow: "hidden !important",
+          width: "min(1160px, calc(100vw - 120px)) !important",
+        },
+        "& .MuiDialogContent-root": {
+          flex: "0 0 auto",
+          overflow: "hidden !important",
+        },
+      }}
+      PaperProps={{
+        className: "device-inventory-dialog-paper",
+        sx: {
+          boxSizing: "border-box",
+          maxHeight: "none !important",
+          maxWidth: "calc(100vw - 120px) !important",
+          overflow: "hidden !important",
+          width: "min(1160px, calc(100vw - 120px)) !important",
+        },
+      }}
+    >
+      <DialogTitle fontWeight={900} sx={{ pb: 1, pt: 2 }}>
+        {title}
+      </DialogTitle>
+      <DialogContent
+        className="device-inventory-dialog-content"
+        sx={{
+          overflow: "hidden !important",
+          px: 3,
+          py: 1,
+        }}
+      >
+        <Box
+          sx={{
+            display: "grid",
+            gap: 1.35,
+            gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
+            pt: 0.5,
+            "& .MuiTextField-root": {
+              minWidth: 0,
+            },
+            "& .MuiInputBase-root": {
+              minHeight: 46,
+            },
+          }}
+        >
           <TextField
             label="Company"
             value={form.company}
@@ -584,7 +703,7 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
               "& .MuiInputBase-input": { color: "text.secondary" },
             }}
           />
-          <TextField select required label="Client Code" value={form.clientId || ""} onChange={updateClient}>
+          <TextField select required size="small" label="Client Code" value={form.clientId || ""} onChange={updateClient} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>
             <MenuItem value="">Select Client Code</MenuItem>
             {clients.map((client) => (
               <MenuItem key={client.id} value={client.id}>
@@ -592,13 +711,13 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
               </MenuItem>
             ))}
           </TextField>
-          <TextField label="Raised by" value={form.raisedBy} onChange={updateField("raisedBy")} />
-          <TextField label="Date Received" type="date" value={form.dateReceived} onChange={updateField("dateReceived")} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField select label="Package Style" value={form.packageStyle} onChange={updateField("packageStyle")}>{packageStyles.map((style) => <MenuItem key={style} value={style}>{style}</MenuItem>)}</TextField>
-          <TextField label="CST Number" value={form.cstNumber} onChange={updateField("cstNumber")} />
-          <TextField label="Ticket Number" value={form.ticketNumber} onChange={updateField("ticketNumber")} />
-          <TextField required label="SN Number" value={form.snNumber} onChange={updateField("snNumber")} />
-          <TextField required select label="Device Type" value={form.deviceType} onChange={updateField("deviceType")}>
+          <TextField size="small" label="Raised by" value={form.raisedBy} onChange={updateField("raisedBy")} />
+          <TextField size="small" label="Date Received" type="date" value={form.dateReceived} onChange={updateField("dateReceived")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField select size="small" label="Package Style" value={form.packageStyle} onChange={updateField("packageStyle")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>{packageStyles.map((style) => <MenuItem key={style} value={style}>{style}</MenuItem>)}</TextField>
+          <TextField size="small" label="CST Number" value={form.cstNumber} onChange={updateField("cstNumber")} />
+          <TextField size="small" label="Ticket Number" value={form.ticketNumber} onChange={updateField("ticketNumber")} />
+          <TextField required size="small" label="SN Number" value={form.snNumber} onChange={updateField("snNumber")} />
+          <TextField required select size="small" label="Device Type" value={form.deviceType} onChange={updateField("deviceType")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>
             <MenuItem value="">Select Device Type</MenuItem>
             {deviceTypes.map((deviceType) => (
               <MenuItem key={deviceType.id} value={deviceType.name}>
@@ -606,12 +725,13 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
               </MenuItem>
             ))}
           </TextField>
-          <TextField select label="With Adapter" value={form.withAdapter} onChange={updateField("withAdapter")}>{adapterOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}</TextField>
-          <TextField label="Start Repairing Support" type="date" value={form.startRepairingSupport} onChange={updateField("startRepairingSupport")} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField label="End Date Support" type="date" value={form.endDateSupport} onChange={updateField("endDateSupport")} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField label="Start QA" type="date" value={form.startQa} onChange={updateField("startQa")} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField label="End Date QA" type="date" value={form.endDateQa} onChange={updateField("endDateQa")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField select size="small" label="With Adapter" value={form.withAdapter} onChange={updateField("withAdapter")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>{adapterOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}</TextField>
+          <TextField size="small" label="Start Repairing Support" type="date" value={form.startRepairingSupport} onChange={updateField("startRepairingSupport")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="End Date Support" type="date" value={form.endDateSupport} onChange={updateField("endDateSupport")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="Start QA" type="date" value={form.startQa} onChange={updateField("startQa")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="End Date QA" type="date" value={form.endDateQa} onChange={updateField("endDateQa")} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField
+            size="small"
             label="Status"
             value={statusDisplayValue}
             disabled
@@ -622,12 +742,12 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
               "& .MuiInputBase-input": { color: "text.secondary" },
             }}
           />
-          <TextField label="Date Delivered" type="date" value={form.dateDelivered} onChange={updateField("dateDelivered")} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField label="Give to" value={form.giveTo} onChange={updateField("giveTo")} />
-          <TextField label="Remarks" multiline minRows={4} value={form.remarks} onChange={updateField("remarks")} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
+          <TextField size="small" label="Date Delivered" type="date" value={form.dateDelivered} onChange={updateField("dateDelivered")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="Give to" value={form.giveTo} onChange={updateField("giveTo")} />
+          <TextField size="small" label="Remarks" multiline minRows={3} value={form.remarks} onChange={updateField("remarks")} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
         </Box>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions sx={{ px: 3, pb: 2, pt: 1 }}>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" onClick={() => onSave(form)} disabled={!canSave}>Save</Button>
       </DialogActions>
@@ -859,135 +979,177 @@ const getAutomaticInventoryStatusName = (item) => {
   return "N/A";
 };
 
-const exportExcel = (items, statuses) => {
-  const headers = ["Company", "Client Code", "Raised by", "Date Received", "Package Style", "CST Number", "Ticket Number", "SN Number", "Device Type", "With Adapter", "Start Repairing Support", "End Date Support", "Start QA", "End Date QA", "Status", "Date Delivered", "Give to", "Remarks"];
+const exportExcel = async (items, statuses) => {
+  // Pull workflow assignee names from the generated tracking records so the Excel output includes every tester column.
+  const trackingByInventoryId = await loadTrackingPeopleByInventoryId(items);
+  const generatedDate = getLocalDateString();
+  const headers = [
+    "Company",
+    "Client Code",
+    "Raised by",
+    "Date Received",
+    "Package Style",
+    "CST Number",
+    "Ticket Number",
+    "SN Number",
+    "Device Type",
+    "With Adapter",
+    "Repair By",
+    "Tested By",
+    "Senior Tested By",
+    "Start Repairing Support",
+    "End Date Support",
+    "Start QA",
+    "End Date QA",
+    "Status",
+    "Date Delivered",
+    "Give to",
+    "Remarks",
+  ];
   const rows = items.map((item) => {
     const status = statuses.find((entry) => entry.id === item.statusId);
+    const trackingPeople = trackingByInventoryId.get(item.id) || {};
     return {
-      cells: [item.company, item.clientCode, item.raisedBy, item.dateReceived, item.packageStyle, item.cstNumber, item.ticketNumber, item.snNumber, item.deviceType, item.withAdapter, item.startRepairingSupport, item.endDateSupport, item.startQa, item.endDateQa, status?.name || item.statusName, item.dateDelivered, item.giveTo, item.remarks],
-      packageStyle: item.packageStyle,
-      statusName: status?.name || item.statusName,
-      statusColor: status?.color || item.statusColor,
-      remarks: item.remarks,
-      ticketNumber: item.ticketNumber,
+      item,
+      values: [
+        item.company,
+        item.clientCode,
+        item.raisedBy,
+        parseExcelDate(item.dateReceived),
+        item.packageStyle,
+        item.cstNumber,
+        item.ticketNumber,
+        item.snNumber,
+        item.deviceType,
+        item.withAdapter,
+        trackingPeople.repairBy || "",
+        trackingPeople.testedBy || "",
+        trackingPeople.seniorTestedBy || "",
+        parseExcelDate(item.startRepairingSupport),
+        parseExcelDate(item.endDateSupport),
+        parseExcelDate(item.startQa),
+        parseExcelDate(item.endDateQa),
+        status?.name || item.statusName,
+        parseExcelDate(item.dateDelivered),
+        item.giveTo,
+        item.remarks,
+      ],
     };
   });
 
-  const columnWidths = [90, 95, 90, 95, 95, 90, 125, 190, 100, 90, 115, 110, 95, 95, 100, 100, 80, 260];
-  const html = `
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
-          th, td { border: 1px solid #d9d9d9; padding: 5px; vertical-align: middle; white-space: normal; }
-          .title { background: #b7e1cd; font-weight: 700; text-align: center; font-size: 12pt; }
-          .header { background: #b7e1cd; font-weight: 700; text-align: center; }
-          .center { text-align: center; }
-          .ticket { background: #00e5e5; }
-          .status { font-weight: 700; text-align: center; }
-          .remarks { color: #ffffff; }
-          .pkg-box { background: #bfe3ff; color: #075985; text-align: center; border-radius: 8px; }
-          .pkg-plastic { background: #fde68a; color: #92400e; text-align: center; border-radius: 8px; }
-          .pkg-paper { background: #fecaca; color: #b91c1c; text-align: center; border-radius: 8px; }
-        </style>
-      </head>
-      <body>
-        <table>
-          <colgroup>
-            ${columnWidths.map((width) => `<col style="width:${width}px" />`).join("")}
-          </colgroup>
-          <thead>
-            <tr><th class="title" colspan="${headers.length}">DEVICE INVENTORY</th></tr>
-            <tr>${headers.map((header) => `<th class="header">${escapeHtml(header)}</th>`).join("")}</tr>
-          </thead>
-          <tbody>
-            ${rows.map((row) => renderExcelRow(row)).join("")}
-          </tbody>
-        </table>
-      </body>
-    </html>
-  `;
-  const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `device-inventory-${new Date().toISOString().slice(0, 10)}.xls`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ["Repair Record Report"],
+    ["Date Generate:", parseExcelDate(generatedDate)],
+    [],
+    [],
+    headers,
+    ...rows.map((row) => row.values),
+  ], { cellDates: true });
+
+  worksheet["!cols"] = [
+    { wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 18 },
+    { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 22 },
+    { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 36 },
+  ];
+  worksheet["!rows"] = [
+    { hpt: 24 },
+    { hpt: 20 },
+    { hpt: 18 },
+    { hpt: 18 },
+    { hpt: 24 },
+    ...rows.map(() => ({ hpt: 24 })),
+  ];
+
+  applyRepairRecordWorkbookStyles(worksheet, headers.length, rows);
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Repair Records");
+  XLSX.writeFile(workbook, `Repair-Record-${generatedDate}.xlsx`, { bookType: "xlsx", cellDates: true });
 };
 
-const escapeHtml = (value) =>
-  String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+const loadTrackingPeopleByInventoryId = async (items) => {
+  const sourceIds = items.map((item) => item.id).filter(Boolean);
+  if (!sourceIds.length) return new Map();
 
-const renderExcelRow = (row) => {
-  const statusBg = row.statusColor || getStatusExportColor(row.statusName);
-  return `<tr>${row.cells
-    .map((cell, index) => {
-      const className = getExportCellClass(index, row);
-      const style = index === 14
-        ? ` style="background:${statusBg}; color:${getTextColor(statusBg)};"`
-        : index === 17 && row.remarks
-          ? ` style="background:${getRemarksExportColor(row.remarks)};"`
-          : "";
-      return `<td class="${className}"${style}>${escapeHtml(cell || "")}</td>`;
-    })
-    .join("")}</tr>`;
+  const { data, error } = await supabase
+    .from("ongoing_testing_items")
+    .select("source_inventory_id, repair_by, test_by, senior_test_by")
+    .in("source_inventory_id", sourceIds);
+
+  if (error) {
+    console.warn("Repair Records export tracking lookup failed:", error.message);
+    return new Map();
+  }
+
+  return new Map((data || []).map((row) => [
+    row.source_inventory_id,
+    {
+      repairBy: row.repair_by || "",
+      testedBy: row.test_by || "",
+      seniorTestedBy: row.senior_test_by || "",
+    },
+  ]));
 };
 
-const getExportCellClass = (index, row) => {
-  if ([1, 3, 9, 10, 11, 12, 13, 15, 16].includes(index)) {
-    return "center";
+const applyRepairRecordWorkbookStyles = (worksheet, columnCount, rows) => {
+  const range = XLSX.utils.decode_range(worksheet["!ref"]);
+  for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+    for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      if (!worksheet[address]) worksheet[address] = { t: "s", v: "" };
+      worksheet[address].s = getBaseExcelStyle(rowIndex);
+    }
   }
-  if (index === 4) {
-    if (row.packageStyle === "With Box") return "pkg-box";
-    if (row.packageStyle === "Plastic") return "pkg-plastic";
-    if (row.packageStyle === "Paper Bag") return "pkg-paper";
+
+  worksheet.A1.s = {
+    ...getBaseExcelStyle(0),
+    font: { name: "Century Gothic", sz: 14, bold: false, color: { rgb: "000000" } },
+    alignment: { horizontal: "left", vertical: "center" },
+  };
+  worksheet.A2.s = {
+    ...getBaseExcelStyle(1),
+    alignment: { horizontal: "left", vertical: "center" },
+  };
+  worksheet.B2.s = {
+    ...getBaseExcelStyle(1),
+    alignment: { horizontal: "left", vertical: "center" },
+    numFmt: "mm-dd-yy",
+  };
+
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+    const headerAddress = XLSX.utils.encode_cell({ r: 4, c: columnIndex });
+    worksheet[headerAddress].s = {
+      ...getBaseExcelStyle(4),
+      alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    };
   }
-  if (index === 6 && row.ticketNumber) {
-    return "ticket center";
-  }
-  if (index === 14) {
-    return "status";
-  }
-  if (index === 17 && row.remarks) {
-    return "remarks";
-  }
-  return "";
+
+  rows.forEach((row, rowOffset) => {
+    const excelRow = rowOffset + 5;
+    [3, 13, 14, 15, 16, 18].forEach((columnIndex) => {
+      const address = XLSX.utils.encode_cell({ r: excelRow, c: columnIndex });
+      if (worksheet[address]) worksheet[address].s = { ...worksheet[address].s, numFmt: "mm-dd-yy" };
+    });
+
+    const remarksAddress = XLSX.utils.encode_cell({ r: excelRow, c: 20 });
+    if (row.item.remarks && worksheet[remarksAddress]) {
+      worksheet[remarksAddress].s = {
+        ...worksheet[remarksAddress].s,
+        alignment: { horizontal: "left", vertical: "center", wrapText: true },
+      };
+    }
+  });
 };
 
-const getStatusExportColor = (statusName) => {
-  if (statusName === "Completed" || statusName === "Complete" || statusName === "Deployed") return "#00ff00";
-  if (statusName === "Ongoing Support" || statusName === "Ongoing QA") return "#ff9900";
-  if (statusName === "Overdue Support") return "#ff0000";
-  if (statusName === "N/A") return "#c9daf8";
-  if (statusName === "Defect") return "#ff0000";
-  return "#ffffff";
-};
+const getBaseExcelStyle = (rowIndex) => ({
+  alignment: { horizontal: rowIndex >= 4 ? "center" : "left", vertical: "center", wrapText: true },
+  font: { name: "Century Gothic", sz: rowIndex === 0 ? 14 : 10, bold: false, color: { rgb: "000000" } },
+});
 
-const getRemarksExportColor = (remarks) => {
-  const lower = remarks.toLowerCase();
-  if (lower.includes("cancel")) return "#cc0000";
-  if (lower.includes("accounting")) return "#ff9900";
-  if (lower.includes("recurring")) return "#eadcf8";
-  if (lower.includes("waiting")) return "#1155cc";
-  if (lower.includes("ongoing")) return "#ffff00";
-  return "#ffffff";
-};
-
-const getTextColor = (background) => {
-  if (!background || background === "#ffffff") return "#000000";
-  const hex = background.replace("#", "");
-  if (hex.length !== 6) return "#000000";
-  const red = parseInt(hex.slice(0, 2), 16);
-  const green = parseInt(hex.slice(2, 4), 16);
-  const blue = parseInt(hex.slice(4, 6), 16);
-  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? "#000000" : "#ffffff";
+const parseExcelDate = (value) => {
+  if (!value) return "";
+  const [year, month, day] = String(value).slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(year, month - 1, day);
 };
 

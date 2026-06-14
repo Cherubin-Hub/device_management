@@ -13,6 +13,8 @@ The application currently uses Supabase PostgreSQL for:
 - Ongoing testing records.
 - Archived deleted records.
 - Audit trail movement history.
+- Administration user profiles and module access rights.
+- Release notes content shown in the Administration module.
 - Image uploads for ongoing testing package pictures.
 
 ## 2. Environment Setup
@@ -308,6 +310,52 @@ on public.audit_trail(event_time desc); -- Index event time because audit genera
 create index if not exists audit_trail_entity_idx
 on public.audit_trail(entity_table, entity_id); -- Index table/id pairs for future record movement investigation.
 
+-- Store application user profiles connected to Supabase Auth users.
+create table if not exists public.app_users (
+  id uuid primary key references auth.users(id) on delete cascade, -- Same id as the Supabase Auth user.
+  display_name text not null default '', -- Name shown in dashboard, sidebar, and workflow sign-offs.
+  email text not null unique, -- Email address used for login and lookup.
+  is_active boolean not null default true, -- Active users can access the app; inactive users are signed out.
+  access_rights jsonb not null default '{}'::jsonb, -- Module visibility map controlled by Administration > User.
+  created_at timestamptz not null default now(), -- Date/time when the app profile was created.
+  updated_at timestamptz -- Date/time when the profile or access rights were last edited.
+); -- End of application user profile table definition.
+
+-- Explain the business purpose of app user profiles.
+comment on table public.app_users is 'Stores editable app user display names, active status, and module access rights.';
+
+-- Explain why access rights are stored as JSON.
+comment on column public.app_users.access_rights is 'JSON map where each module key controls whether that module is visible to the user.';
+
+-- Add display name to existing app user tables if the table was created before this guide.
+alter table public.app_users
+  add column if not exists display_name text not null default ''; -- Stores the readable user name.
+
+-- Add active flag to existing app user tables if the table was created before this guide.
+alter table public.app_users
+  add column if not exists is_active boolean not null default true; -- Controls application access after login.
+
+-- Add access rights to existing app user tables if the table was created before this guide.
+alter table public.app_users
+  add column if not exists access_rights jsonb not null default '{}'::jsonb; -- Controls sidebar/module visibility.
+
+-- Store release notes maintained from the Administration module.
+create table if not exists public.release_notes (
+  id uuid primary key default gen_random_uuid(), -- Unique release note row identifier.
+  title text not null, -- Release note title such as Endivio Release Notes v1.
+  content text not null default '', -- Release note body/content encoded by the user.
+  created_by text, -- Display name or email of the user who created the note.
+  created_at timestamptz not null default now(), -- Date/time when the release note was created.
+  updated_at timestamptz -- Date/time when the release note was last edited.
+); -- End of release notes table definition.
+
+-- Explain the business purpose of release notes.
+comment on table public.release_notes is 'Stores application release note titles and content for user review.';
+
+-- Improve release note sorting by newest record.
+create index if not exists release_notes_created_at_idx
+on public.release_notes(created_at desc); -- Index created date so newest release notes load first.
+
 -- Enable RLS for client configuration.
 alter table public.clients enable row level security;
 
@@ -331,6 +379,12 @@ alter table public.archived_records enable row level security;
 
 -- Enable RLS for audit trail records.
 alter table public.audit_trail enable row level security;
+
+-- Enable RLS for application user profiles.
+alter table public.app_users enable row level security;
+
+-- Enable RLS for release notes.
+alter table public.release_notes enable row level security;
 
 -- Remove old clients read policy before recreating it.
 drop policy if exists "authenticated users can read clients" on public.clients;
@@ -483,6 +537,53 @@ on public.audit_trail for insert
 to authenticated -- Limit audit inserts to signed-in users only.
 with check (true); -- Allow audit insert rows created by authenticated workflows.
 
+-- Remove old app user read policy before recreating it.
+drop policy if exists "authenticated users can read app users" on public.app_users;
+
+-- Allow signed-in users to read profiles so Administration can show all users and inactive checks can run.
+create policy "authenticated users can read app users"
+on public.app_users for select
+to authenticated
+using (true);
+
+-- Remove old app user insert policy before recreating it.
+drop policy if exists "authenticated users can insert own app user" on public.app_users;
+
+-- Allow first-login profile creation for the currently signed-in Supabase Auth user.
+create policy "authenticated users can insert own app user"
+on public.app_users for insert
+to authenticated
+with check (id = auth.uid()); -- Prevent one user from creating another user's profile from the browser.
+
+-- Remove old app user update policy before recreating it.
+drop policy if exists "authenticated users can update app users" on public.app_users;
+
+-- Allow Administration > User to edit display names, active flags, and access rights.
+create policy "authenticated users can update app users"
+on public.app_users for update
+to authenticated
+using (true)
+with check (true); -- Keep app-level access rights responsible for showing the User module.
+
+-- Remove old release notes read policy before recreating it.
+drop policy if exists "authenticated users can read release notes" on public.release_notes;
+
+-- Allow signed-in users to read release notes.
+create policy "authenticated users can read release notes"
+on public.release_notes for select
+to authenticated
+using (true);
+
+-- Remove old release notes manage policy before recreating it.
+drop policy if exists "authenticated users can manage release notes" on public.release_notes;
+
+-- Allow signed-in users with visible Administration UI to create and update release notes.
+create policy "authenticated users can manage release notes"
+on public.release_notes for all
+to authenticated
+using (true)
+with check (true); -- Keep app-level access rights responsible for showing the Release Notes module.
+
 -- Create the public image bucket used by ongoing testing package photos.
 insert into storage.buckets (id, name, public)
 values ('ongoing-testing-images', 'ongoing-testing-images', true)
@@ -526,6 +627,37 @@ values
   ('T2200'), -- Common biometric device model.
   ('FaceID 1500') -- Common face recognition device model.
 on conflict (name) do nothing; -- Do not duplicate default device types when the setup script is rerun.
+
+-- Create editable app user profiles from existing Supabase Auth users.
+insert into public.app_users (id, display_name, email, is_active, access_rights)
+select
+  auth_user.id, -- Copy the Auth user id into the app profile.
+  coalesce(
+    nullif(auth_user.raw_user_meta_data->>'display_name', ''), -- Prefer Supabase Auth display name when available.
+    nullif(auth_user.raw_user_meta_data->>'full_name', ''), -- Fall back to full_name metadata when available.
+    split_part(auth_user.email, '@', 1) -- Last fallback is the email username before @.
+  ), -- End of display name fallback chain.
+  auth_user.email, -- Copy the login email into the app profile.
+  true, -- Existing users start active so nobody is locked out during setup.
+  '{}'::jsonb -- Missing access keys default to visible in the frontend.
+from auth.users as auth_user -- Read existing Supabase Auth users.
+where auth_user.email is not null -- Only import accounts that can log in with an email.
+on conflict (id) do update
+set
+  email = excluded.email, -- Keep email current when Auth email changes.
+  display_name = coalesce(nullif(public.app_users.display_name, ''), excluded.display_name); -- Preserve manually edited display names.
+
+-- Add the first default release note row.
+insert into public.release_notes (title, content, created_by)
+select
+  'Endivio Release Notes v1', -- Default release note title shown in the no-header table.
+  'Initial release notes for Endivio Device Management.', -- Starter content that can be edited later.
+  'System' -- Marks this row as a setup-generated release note.
+where not exists (
+  select 1 -- Check if the default release note already exists.
+  from public.release_notes -- Look inside the release notes table.
+  where title = 'Endivio Release Notes v1' -- Match the default version title.
+); -- End default release note seed.
 ```
 
 ## 5. Migration Notes To MSSQL
@@ -646,6 +778,12 @@ Database: Supabase PostgreSQL
 -- Drop child/history tables first because they depend on base records.
 drop table if exists public.audit_trail;
 
+-- Drop release notes after any needed content export.
+drop table if exists public.release_notes;
+
+-- Drop app user profiles after account/access exports.
+drop table if exists public.app_users;
+
 -- Drop archived records after audit trail.
 drop table if exists public.archived_records;
 
@@ -678,6 +816,7 @@ drop table if exists public.clients;
 | 2026-06-09 | Added configurable device types. | Inventory Device Type now uses setup values from `device_types`. |
 | 2026-06-10 | Added automatic inventory workflow statuses. | Inventory status is derived from support and QA date fields. |
 | 2026-06-10 | Added Testing Device repair workflow. | New Repair, My Repair, and Done Repair modules use `repair_device_records`. |
+| 2026-06-12 | Added Administration module tables. | `app_users` controls display name, active status, and module access; `release_notes` stores release note content. |
 
 ## 8. Developer Notes
 
@@ -686,4 +825,7 @@ drop table if exists public.clients;
 - Audit trail reports require a date range to avoid large unbounded queries.
 - Inventory status is automatic: `N/A`, `Ongoing Support`, `Overdue Support`, `Ongoing QA`, and `Completed` must exist in `statuses`.
 - Testing Device workflow stages are `Repair By`, `Tested By`, `Senior Tested By`, and `Done Repair Device`.
+- Administration user access is enforced by the app shell; inactive users are signed out after their profile is read.
+- New module access keys are centralized in `src/lib/accessRights.js` and stored per user in `app_users.access_rights`.
+- `releaseNotesCreate` controls the Release Notes `New` button; missing values default to unchecked so only allowed users can create notes.
 - The older SQL markdown files can remain as historical patches, but this file should be treated as the main setup guide.

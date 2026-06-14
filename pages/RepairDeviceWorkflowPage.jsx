@@ -14,12 +14,17 @@ import {
   Typography,
 } from "@mui/material";
 import AssignmentIndRoundedIcon from "@mui/icons-material/AssignmentIndRounded";
-import BuildCircleRoundedIcon from "@mui/icons-material/BuildCircleRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import PlaylistAddCheckRoundedIcon from "@mui/icons-material/PlaylistAddCheckRounded";
-import { useEffect, useState } from "react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { useEffect, useMemo, useState } from "react";
 import { PackageChip, WorkflowStatusChip } from "../components/RepairWorkflowChips.jsx";
+import { tests } from "../components/testScripts.js";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
+import { paginateRows } from "../src/lib/pagination.js";
 import { formatPersonName, getRecordLabel, getUserDisplayName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
@@ -47,6 +52,11 @@ const pageCopy = {
     title: "My Repair Device",
     subtitle: "Repair tasks currently assigned to you.",
   },
+  all: {
+    icon: <AssignmentIndRoundedIcon fontSize="small" />,
+    title: "All Repair Device",
+    subtitle: "All active repair tasks claimed by any user, shown for viewing only.",
+  },
   support: {
     icon: <AssignmentIndRoundedIcon fontSize="small" />,
     title: "Ongoing Support Testing",
@@ -73,6 +83,8 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
   const [error, setError] = useState("");
   // Store the selected row id so the table can highlight the user's current focus.
   const [selectedId, setSelectedId] = useState(null);
+  // Keep repair workflow queues limited to 20 visible records per page.
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -97,6 +109,11 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
       // My Repair Device shows any active workflow row assigned to the signed-in user.
       if (mode === "my") {
         query = query.eq("assigned_to_email", userEmail).neq("workflow_status", "Done Repair Device");
+      }
+
+      // All Repair Device shows every active assigned task so all users can monitor repair movement.
+      if (mode === "all") {
+        query = query.not("assigned_to_email", "is", null).neq("workflow_status", "Done Repair Device");
       }
 
       // Ongoing Support Testing is a queue of unassigned records that already passed Repair By.
@@ -142,6 +159,11 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
   const hasActionColumn = mode === "new" || mode === "support" || mode === "senior" || mode === "my" || mode === "done";
   // Queue pages allow the user to claim work before editing it in My Repair Device.
   const isClaimQueue = mode === "new" || mode === "support" || mode === "senior";
+  // Render only the current page while keeping the full queue available in state.
+  const paginatedRecords = useMemo(
+    () => paginateRows(records, page),
+    [records, page]
+  );
 
   const handleGetRepair = async (record) => {
     // Read the signed-in Supabase user so assignment records both id and email.
@@ -277,16 +299,16 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
 
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
-      <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", lg: "center" }} spacing={1.5} sx={{ mb: 2 }}>
-        <Stack direction="row" spacing={1.5} alignItems="center">
+      <Stack className="module-page-header" direction={{ xs: "column", lg: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", lg: "center" }} spacing={1.5} sx={{ mb: 2 }}>
+        <Stack className="module-page-heading" direction="row" spacing={1.5} alignItems="center">
           <Box sx={{ alignItems: "center", bgcolor: "#e8f2ff", borderRadius: 1.5, color: "#1f5f99", display: "flex", height: 38, justifyContent: "center", width: 38 }}>
             {copy.icon}
           </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
+          <Box className="module-page-copy">
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               {copy.title}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography className="module-page-description" variant="caption" color="text.secondary">
               {copy.subtitle}
             </Typography>
           </Box>
@@ -316,7 +338,7 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
                   {column}
                 </TableCell>
               ))}
-              {hasActionColumn ? <TableCell align="center" width={mode === "done" ? 90 : 130}>Action</TableCell> : null}
+              {hasActionColumn ? <TableCell align="center" width={mode === "done" ? 160 : 130}>Action</TableCell> : null}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -334,13 +356,14 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
                 </TableCell>
               </TableRow>
             ) : null}
-            {records.map((record) => (
+            {paginatedRecords.map((record) => (
               <TableRow
                 key={record.id}
                 hover
                 selected={selectedId === record.id}
                 onClick={() => setSelectedId(record.id)}
                 onDoubleClick={() => {
+                  // All Repair Device is a monitoring page only, so double-click opens the form as read-only.
                   onOpenRecord(record.id, mode !== "my");
                 }}
                 sx={{ cursor: "pointer" }}
@@ -356,9 +379,20 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
                 <TableCell align="center">{record.with_adapter || "-"}</TableCell>
                 <TableCell align="center"><WorkflowStatusChip value={record.workflow_status} /></TableCell>
                 {isClaimQueue ? (
-                  <TableCell align="center">
-                    <Button size="small" variant="contained" startIcon={<BuildCircleRoundedIcon />} onClick={() => handleGetRepair(record)} sx={{ fontSize: 11, textTransform: "none" }}>
-                      {getClaimButtonText(mode)}
+                  <TableCell align="center" sx={{ px: 0.5, py: 0.45 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleGetRepair(record)}
+                      sx={{
+                        fontSize: 11,
+                        height: 28,
+                        minWidth: 62,
+                        px: 1,
+                        textTransform: "none",
+                      }}
+                    >
+                      Get
                     </Button>
                   </TableCell>
                 ) : null}
@@ -386,26 +420,51 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
                 ) : null}
                 {mode === "done" ? (
                   <TableCell align="center" sx={{ px: 0.5, py: 0.45 }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => handleReturnStatus(record)}
-                      sx={{
-                        fontSize: 11,
-                        height: 28,
-                        minWidth: 62,
-                        px: 1,
-                        textTransform: "none",
-                      }}
-                    >
-                      Return
-                    </Button>
+                    <Stack direction="row" spacing={0.75} justifyContent="center" alignItems="center">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleReturnStatus(record);
+                        }}
+                        sx={{
+                          fontSize: 11,
+                          height: 28,
+                          minWidth: 62,
+                          px: 1,
+                          textTransform: "none",
+                        }}
+                      >
+                        Return
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<DownloadRoundedIcon />}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          downloadDoneRepairPdf(record);
+                        }}
+                        sx={{
+                          "& .MuiButton-startIcon": { mr: 0.35 },
+                          fontSize: 11,
+                          height: 28,
+                          minWidth: 62,
+                          px: 1,
+                          textTransform: "none",
+                        }}
+                      >
+                        PDF
+                      </Button>
+                    </Stack>
                   </TableCell>
                 ) : null}
               </TableRow>
             ))}
           </TableBody>
         </Table>
+        <TablePaginationControls count={records.length} page={page} onChange={setPage} />
       </TableContainer>
     </Box>
   );
@@ -431,13 +490,178 @@ function formatDate(value) {
   return value ? new Date(`${value}T00:00:00`).toLocaleDateString() : "-";
 }
 
-function getClaimButtonText(mode) {
-  // Keep the claim button wording matched to the current queue stage.
-  if (mode === "support") return "Get Support Testing";
-  // Senior queue claims senior testing work.
-  if (mode === "senior") return "Get Senior Testing";
-  // New queue claims the first repair stage.
-  return "Get This Repair";
+function downloadDoneRepairPdf(record) {
+  // Build a one-page landscape PDF so device details and checklist results fit in one corporate report.
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const generatedAt = new Date().toLocaleString();
+  const serialNumber = valueOrBlank(record.sn_number);
+  const fileName = `${sanitizeFileName(record.sn_number) || "repair-device-report"}.pdf`;
+  const checklistResults = normalizePdfChecklist(record.test_results);
+
+  doc.setProperties({
+    subject: "Done repair device report",
+    title: `Done Repair Device - ${serialNumber}`,
+  });
+
+  // Header band gives the exported PDF a clean corporate report identity.
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 18, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("ENDIVIO DEVICE MANAGEMENT", 8, 7.5);
+  doc.setFontSize(9);
+  doc.text("Done Repair Device Report", 8, 13.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.text(`Generated: ${generatedAt}`, pageWidth - 8, 7.5, { align: "right" });
+  doc.text(`SN Number: ${serialNumber}`, pageWidth - 8, 13.5, { align: "right" });
+
+  autoTable(doc, {
+    body: [
+      ["Company", valueOrBlank(record.company), "Client Code", valueOrBlank(record.client_code), "Date Received", formatDate(record.date_received)],
+      ["Package Style", valueOrBlank(record.package_style), "CST Number", valueOrBlank(record.cst_number), "Ticket Number", valueOrBlank(record.ticket_number)],
+      ["SN Number", serialNumber, "Device Type", valueOrBlank(record.device_type), "With Adapter", valueOrBlank(record.with_adapter)],
+      ["Status", valueOrBlank(record.workflow_status), "Completed At", formatDateTime(record.completed_at), "Assigned Email", valueOrBlank(record.assigned_to_email)],
+    ],
+    margin: { left: 8, right: 8 },
+    startY: 22,
+    styles: {
+      cellPadding: 1.1,
+      font: "helvetica",
+      fontSize: 6.6,
+      lineColor: [203, 213, 225],
+      lineWidth: 0.15,
+      overflow: "ellipsize",
+      valign: "middle",
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { fillColor: [226, 232, 240], fontStyle: "bold", textColor: [15, 23, 42] },
+      2: { fillColor: [226, 232, 240], fontStyle: "bold", textColor: [15, 23, 42] },
+      4: { fillColor: [226, 232, 240], fontStyle: "bold", textColor: [15, 23, 42] },
+    },
+    theme: "grid",
+  });
+
+  autoTable(doc, {
+    body: [
+      ["Device Algorithm", valueOrBlank(record.device_algorithm), "Device Pinwidth", valueOrBlank(record.device_pinwidth), "Previous Pinwidth", valueOrBlank(record.previous_pinwidth)],
+      ["Repair By", formatPersonName(record.repair_by), "Tested By", formatPersonName(record.test_by), "Senior Tested By", formatPersonName(record.senior_test_by)],
+      ["Checking Remarks", truncatePdfText(record.checking_remarks, 110), "Additional Comments", truncatePdfText(record.additional_comments, 110), "Record Remarks", truncatePdfText(record.remarks, 110)],
+    ],
+    margin: { left: 8, right: 8 },
+    startY: doc.lastAutoTable.finalY + 2,
+    styles: {
+      cellPadding: 1,
+      font: "helvetica",
+      fontSize: 6.2,
+      lineColor: [203, 213, 225],
+      lineWidth: 0.15,
+      overflow: "ellipsize",
+      valign: "middle",
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { fillColor: [240, 253, 250], fontStyle: "bold", textColor: [15, 118, 110] },
+      2: { fillColor: [240, 253, 250], fontStyle: "bold", textColor: [15, 118, 110] },
+      4: { fillColor: [240, 253, 250], fontStyle: "bold", textColor: [15, 118, 110] },
+    },
+    theme: "grid",
+  });
+
+  // The checklist table uses very compact text so all 41 scripts stay on the same PDF page.
+  autoTable(doc, {
+    body: tests.map((test, index) => [
+      index + 1,
+      test,
+      valueOrBlank(checklistResults[index]?.status),
+      truncatePdfText(checklistResults[index]?.remarks, 85),
+    ]),
+    head: [["#", "Test Script", "Status", "Remarks"]],
+    margin: { left: 8, right: 8 },
+    startY: doc.lastAutoTable.finalY + 3,
+    styles: {
+      cellPadding: 0.45,
+      font: "helvetica",
+      fontSize: 4.8,
+      lineColor: [226, 232, 240],
+      lineWidth: 0.12,
+      minCellHeight: 2.85,
+      overflow: "ellipsize",
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: [32, 208, 196],
+      fontSize: 5.4,
+      halign: "center",
+      textColor: [6, 20, 19],
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 8, halign: "center" },
+      1: { cellWidth: 128 },
+      2: { cellWidth: 18, halign: "center" },
+      3: { cellWidth: 127 },
+    },
+    theme: "grid",
+  });
+
+  // Footer stays on page one because this report is intentionally compact.
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6);
+  doc.setTextColor(100, 116, 139);
+  doc.text("This report was generated from the completed repair workflow record.", 8, 204);
+  doc.text("Page 1 of 1", pageWidth - 8, 204, { align: "right" });
+
+  doc.save(fileName);
+}
+
+function normalizePdfChecklist(value) {
+  // Use saved checklist rows when available; otherwise keep a blank row for every configured test script.
+  if (Array.isArray(value)) {
+    return tests.map((_, index) => value[index] || { remarks: "", status: "" });
+  }
+  return tests.map(() => ({ remarks: "", status: "" }));
+}
+
+function formatDateTime(value) {
+  // Render timestamps in the user's browser locale for readable exported reports.
+  return value
+    ? new Date(value).toLocaleString(undefined, {
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : "-";
+}
+
+function valueOrBlank(value) {
+  // Export tables use a dash so empty database fields remain visible in the PDF.
+  const text = String(value || "").trim();
+  return text || "-";
+}
+
+function truncatePdfText(value, limit) {
+  // Keep long remarks inside a one-page PDF by clipping overly long text with an ellipsis.
+  const text = valueOrBlank(value);
+  return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
+}
+
+function sanitizeFileName(value) {
+  // Remove characters that Windows and browsers do not allow in downloaded filenames.
+  return String(value || "")
+    .trim()
+    .split("")
+    .filter((character) => character.charCodeAt(0) >= 32)
+    .join("")
+    .replace(/[<>:"/\\|?*]/g, "-")
+    .replace(/\s+/g, "_")
+    .replace(/-+/g, "-")
+    .slice(0, 80);
 }
 
 function getPreviousWorkflowStatus(currentStatus) {

@@ -230,13 +230,14 @@ export default function DeviceTestingPage() {
       }}
     >
       <Stack
+        className="module-page-header"
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", md: "center" }}
         spacing={2}
         sx={{ mb: 3 }}
       >
-        <Box>
+        <Box className="module-page-copy">
           <Chip
             label="JS3000+ Device Testing"
             size="small"
@@ -247,10 +248,10 @@ export default function DeviceTestingPage() {
               fontWeight: 700,
             }}
           />
-          <Typography variant="h4" component="h1" fontWeight={800}>
+          <Typography className="module-page-title" variant="h4" component="h1" fontWeight={800}>
             Device Testing Report
           </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mt: 0.75 }}>
+          <Typography className="module-page-description" variant="body1" color="text.secondary" sx={{ mt: 0.75 }}>
             Capture device details, validate each test, and collect final review in one place.
           </Typography>
         </Box>

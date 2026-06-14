@@ -18,6 +18,9 @@ import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import { useMemo, useState } from "react";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
+import { paginateRows } from "../src/lib/pagination.js";
+import { formatPersonName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
 const actionColors = {
@@ -39,12 +42,14 @@ export default function AuditTrailPage() {
   const [events, setEvents] = useState([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // Paginate generated audit rows so large reports do not render all rows at once.
+  const [page, setPage] = useState(1);
 
-  const reportTitle = useMemo(() => {
-    // Show the exact generated date range so exported and visible reports match.
-    if (!appliedFilters) return "Select a date range, then generate the audit report.";
-    return `${formatInputDate(appliedFilters.from)} to ${formatInputDate(appliedFilters.to)}`;
-  }, [appliedFilters]);
+  // Keep export using the full generated report while displaying only one page in the browser.
+  const paginatedEvents = useMemo(
+    () => paginateRows(events, page),
+    [events, page]
+  );
 
   const handleGenerate = async () => {
     setError("");
@@ -70,7 +75,7 @@ export default function AuditTrailPage() {
     // Retrieve only movement events inside the requested date range for predictable report size.
     const query = supabase
       .from("audit_trail")
-      .select("id, event_time, module, action, entity_table, entity_id, record_label, actor_email, summary, before_data, after_data, metadata")
+      .select("id, event_time, module, action, entity_table, entity_id, record_label, actor_id, actor_email, summary, before_data, after_data, metadata")
       .gte("event_time", `${draftFilters.from}T00:00:00`)
       .lte("event_time", `${draftFilters.to}T23:59:59`)
       .order("event_time", { ascending: false });
@@ -84,7 +89,10 @@ export default function AuditTrailPage() {
       return;
     }
 
-    setEvents(data || []);
+    // Enrich audit rows with app user display names while keeping the audit table as the source of movement history.
+    const rowsWithDisplayNames = await enrichEventsWithActorNames(data || []);
+    setEvents(rowsWithDisplayNames);
+    setPage(1);
     setAppliedFilters({ ...draftFilters });
     setIsLoading(false);
   };
@@ -96,13 +104,14 @@ export default function AuditTrailPage() {
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
       <Stack
+        className="module-page-header"
         direction={{ xs: "column", lg: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", lg: "center" }}
         spacing={1.5}
         sx={{ mb: 2 }}
       >
-        <Stack direction="row" spacing={1.5} alignItems="center">
+        <Stack className="module-page-heading" direction="row" spacing={1.5} alignItems="center">
           <Box
             sx={{
               alignItems: "center",
@@ -117,12 +126,12 @@ export default function AuditTrailPage() {
           >
             <HistoryRoundedIcon fontSize="small" />
           </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
+          <Box className="module-page-copy">
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               Audit Trail
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Review complete device inventory movement by date range.
+            <Typography className="module-page-description" variant="caption" color="text.secondary">
+              Review complete device inventory movement.
             </Typography>
           </Box>
         </Stack>
@@ -180,14 +189,6 @@ export default function AuditTrailPage() {
       ) : null}
 
       <Paper elevation={0} sx={{ border: "1px solid #dde5ef", borderRadius: 2, overflow: "hidden" }}>
-        <Box sx={{ bgcolor: "background.paper", borderBottom: "1px solid #dde5ef", px: 1.5, py: 1 }}>
-          <Typography variant="subtitle2" fontWeight={900}>
-            Movement Report
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {reportTitle}
-          </Typography>
-        </Box>
         <TableContainer sx={{ overflowX: "hidden" }}>
           <Table
             size="small"
@@ -245,7 +246,7 @@ export default function AuditTrailPage() {
                   </TableCell>
                 </TableRow>
               ) : null}
-              {events.map((event) => (
+              {paginatedEvents.map((event) => (
                 <TableRow key={event.id} hover>
                   <TableCell align="center">{formatDateTime(event.event_time)}</TableCell>
                   <TableCell align="center">{event.module || "-"}</TableCell>
@@ -263,13 +264,14 @@ export default function AuditTrailPage() {
                   </TableCell>
                   <TableCell align="center">{event.record_label || "-"}</TableCell>
                   <TruncatedCell>{event.summary || "-"}</TruncatedCell>
-                  <TruncatedCell align="center">{event.actor_email || "System"}</TruncatedCell>
+                  <TruncatedCell align="center">{getActorDisplayName(event)}</TruncatedCell>
                   <TableCell align="center">{tableLabel(event.entity_table)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </TableContainer>
+        <TablePaginationControls count={events.length} page={page} onChange={setPage} />
       </Paper>
     </Box>
   );
@@ -340,7 +342,7 @@ const exportAuditExcel = (events, filters) => {
           <td class="center">${escapeHtml(formatAction(event.action))}</td>
           <td>${escapeHtml(event.record_label || "")}</td>
           <td>${escapeHtml(event.summary || "")}</td>
-          <td>${escapeHtml(event.actor_email || "System")}</td>
+          <td>${escapeHtml(getActorDisplayName(event))}</td>
           <td class="center">${escapeHtml(tableLabel(event.entity_table))}</td>
         </tr>`
     )
@@ -407,3 +409,55 @@ const escapeHtml = (value) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+
+async function enrichEventsWithActorNames(events) {
+  // Collect actor ids and emails from the generated report so one lookup can cover the visible and exported rows.
+  const actorIds = [...new Set(events.map((event) => event.actor_id).filter(Boolean))];
+  const actorEmails = [...new Set(events.map((event) => event.actor_email).filter(Boolean))];
+  const profilesById = new Map();
+  const profilesByEmail = new Map();
+
+  if (actorIds.length > 0) {
+    // Match current audit rows by Supabase auth id whenever the audit event captured it.
+    const { data, error } = await supabase
+      .from("app_users")
+      .select("id, email, display_name")
+      .in("id", actorIds);
+
+    if (!error) {
+      data?.forEach((profile) => {
+        profilesById.set(profile.id, profile);
+        if (profile.email) profilesByEmail.set(profile.email.toLowerCase(), profile);
+      });
+    }
+  }
+
+  if (actorEmails.length > 0) {
+    // Also match older audit rows by email because some existing records may not have actor_id populated.
+    const { data, error } = await supabase
+      .from("app_users")
+      .select("id, email, display_name")
+      .in("email", actorEmails);
+
+    if (!error) {
+      data?.forEach((profile) => {
+        if (profile.id) profilesById.set(profile.id, profile);
+        if (profile.email) profilesByEmail.set(profile.email.toLowerCase(), profile);
+      });
+    }
+  }
+
+  return events.map((event) => {
+    // Prefer exact auth-id match, then email match, then a readable fallback generated from the email local part.
+    const profile =
+      profilesById.get(event.actor_id) ||
+      profilesByEmail.get(String(event.actor_email || "").toLowerCase());
+    const displayName = profile?.display_name || formatPersonName(event.actor_email);
+    return { ...event, actor_display_name: displayName };
+  });
+}
+
+function getActorDisplayName(event) {
+  // Show the user-facing display name in reports, never the raw email unless no readable value exists.
+  return event?.actor_display_name || formatPersonName(event?.actor_email) || "System";
+}

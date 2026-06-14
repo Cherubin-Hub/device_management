@@ -18,7 +18,9 @@ import ArchiveRoundedIcon from "@mui/icons-material/ArchiveRounded";
 import RestoreRoundedIcon from "@mui/icons-material/RestoreRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { useEffect, useMemo, useState } from "react";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
+import { paginateRows } from "../src/lib/pagination.js";
 import { supabase } from "../src/lib/supabase.js";
 
 const tableLabels = {
@@ -32,6 +34,8 @@ export default function ArchivedRecordsPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
+  // Keep archive rendering lightweight by showing one 20-record page at a time.
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -79,6 +83,12 @@ export default function ArchivedRecordsPage() {
     });
   }, [archives, query]);
 
+  // Paginate only the visible archive rows; restore still works against the original row id.
+  const paginatedArchives = useMemo(
+    () => paginateRows(displayedArchives, page),
+    [displayedArchives, page]
+  );
+
   const handleRestore = async (archive) => {
     setError("");
     // Remove system columns because restored rows should receive fresh ids/timestamps.
@@ -121,13 +131,14 @@ export default function ArchivedRecordsPage() {
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
       <Stack
+        className="module-page-header"
         direction={{ xs: "column", lg: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "flex-start", lg: "center" }}
         spacing={1.5}
         sx={{ mb: 2 }}
       >
-        <Stack direction="row" spacing={1.5} alignItems="center">
+        <Stack className="module-page-heading" direction="row" spacing={1.5} alignItems="center">
           <Box
             sx={{
               alignItems: "center",
@@ -142,12 +153,12 @@ export default function ArchivedRecordsPage() {
           >
             <ArchiveRoundedIcon fontSize="small" />
           </Box>
-          <Box>
-            <Typography variant="h5" component="h1" fontWeight={900}>
+          <Box className="module-page-copy">
+            <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               Archived Records
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Restore deleted inventory and ongoing testing records anytime.
+            <Typography className="module-page-description" variant="caption" color="text.secondary">
+              Restore deleted inventory and ongoing testing records.
             </Typography>
           </Box>
         </Stack>
@@ -155,7 +166,10 @@ export default function ArchivedRecordsPage() {
         <TextField
           size="small"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setPage(1);
+            setQuery(event.target.value);
+          }}
           placeholder="Search archived records"
           InputProps={{ startAdornment: <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18, mr: 0.75 }} /> }}
           sx={{ minWidth: { xs: "100%", sm: 280 } }}
@@ -215,7 +229,7 @@ export default function ArchivedRecordsPage() {
                 </TableCell>
               </TableRow>
             ) : null}
-            {displayedArchives.map((archive) => (
+            {paginatedArchives.map((archive) => (
               <TableRow key={archive.id} hover>
                 <TableCell align="center">
                   <Chip label={tableLabels[archive.source_table] || archive.record_type} size="small" sx={{ fontWeight: 400 }} />
@@ -238,6 +252,7 @@ export default function ArchivedRecordsPage() {
             ))}
           </TableBody>
         </Table>
+        <TablePaginationControls count={displayedArchives.length} page={page} onChange={setPage} />
       </TableContainer>
     </Box>
   );

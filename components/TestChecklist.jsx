@@ -15,9 +15,15 @@ import {
   Paper,
 } from "@mui/material";
 import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
+import { useMemo, useState } from "react";
+import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
+import { paginateRows } from "../src/lib/pagination.js";
 import { tests } from "./testScripts";
 
 export default function TestChecklist({ hideSummaryChip = false, readOnly = false, results, onResultsChange }) {
+  // Keep the 41-row checklist lighter by showing 20 test scripts per page.
+  const [page, setPage] = useState(1);
+
   const handleStatusChange = (index, status) => {
     // Stop changes when this checklist is opened from a queue page for viewing only.
     if (readOnly) return;
@@ -48,6 +54,16 @@ export default function TestChecklist({ hideSummaryChip = false, readOnly = fals
   const evaluatedCount = results.filter((result) => result.status).length;
   // Convert evaluated rows into a percentage for the progress bar.
   const progress = Math.round((evaluatedCount / tests.length) * 100);
+  // Pair each test script with its original index so edits still update the correct result row.
+  const testEntries = useMemo(
+    () => tests.map((test, index) => ({ index, test })),
+    []
+  );
+  // Slice only the displayed checklist rows; the full result array is still saved/exported.
+  const paginatedTestEntries = useMemo(
+    () => paginateRows(testEntries, page),
+    [page, testEntries]
+  );
 
   return (
     <Stack spacing={2.25}>
@@ -72,7 +88,16 @@ export default function TestChecklist({ hideSummaryChip = false, readOnly = fals
           >
             <AssignmentTurnedInRoundedIcon fontSize="small" />
           </Box>
-          <Box>
+          <Box
+            sx={{
+              // Keep the checklist title/details aligned immediately to the right of the icon.
+              minWidth: 0,
+              textAlign: "left !important",
+              "& .MuiTypography-root": {
+                textAlign: "left !important",
+              },
+            }}
+          >
             <Typography variant="h6" fontWeight={800}>
               Test Checklist
             </Typography>
@@ -157,17 +182,42 @@ export default function TestChecklist({ hideSummaryChip = false, readOnly = fals
           </TableHead>
 
           <TableBody>
-            {tests.map((test, index) => (
+            {paginatedTestEntries.map(({ index, test }) => (
               <TableRow
                 key={test}
                 hover
-                sx={{
-                  bgcolor:
-                    results[index].status === "Yes"
-                      ? "#fbfffc"
-                      : results[index].status === "No"
-                        ? "#fffafa"
-                        : "inherit",
+                sx={(theme) => {
+                  const isDarkMode = theme.palette.mode === "dark";
+                  const selectedStatus = results[index].status;
+                  const rowBg =
+                    selectedStatus === "Yes"
+                      ? isDarkMode
+                        ? "rgba(34, 197, 94, 0.14)"
+                        : "#fbfffc"
+                      : selectedStatus === "No"
+                        ? isDarkMode
+                          ? "rgba(239, 68, 68, 0.14)"
+                          : "#fffafa"
+                        : "inherit";
+                  const rowHoverBg =
+                    selectedStatus === "Yes"
+                      ? isDarkMode
+                        ? "rgba(34, 197, 94, 0.22)"
+                        : "#f0fff4"
+                      : selectedStatus === "No"
+                        ? isDarkMode
+                          ? "rgba(239, 68, 68, 0.22)"
+                          : "#fff1f2"
+                        : isDarkMode
+                          ? "rgba(32, 208, 196, 0.12)"
+                          : "rgba(32, 208, 196, 0.08)";
+
+                  return {
+                    bgcolor: `${rowBg} !important`,
+                    "&:hover": {
+                      bgcolor: `${rowHoverBg} !important`,
+                    },
+                  };
                 }}
               >
                 <TableCell align="center">
@@ -257,6 +307,7 @@ export default function TestChecklist({ hideSummaryChip = false, readOnly = fals
             ))}
           </TableBody>
         </Table>
+        <TablePaginationControls count={tests.length} page={page} onChange={setPage} />
       </TableContainer>
     </Stack>
   );

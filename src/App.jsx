@@ -1,9 +1,11 @@
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
   CssBaseline,
   Divider,
+  IconButton,
   Stack,
   ThemeProvider,
   Typography,
@@ -11,6 +13,8 @@ import {
 } from "@mui/material";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import ArchiveRoundedIcon from "@mui/icons-material/ArchiveRounded";
+import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
+import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSettingsRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
@@ -18,19 +22,25 @@ import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import BuildCircleRoundedIcon from "@mui/icons-material/BuildCircleRounded";
+import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
+import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
+import PushPinRoundedIcon from "@mui/icons-material/PushPinRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import ArchivedRecordsPage from "../pages/ArchivedRecordsPage";
 import AuditTrailPage from "../pages/AuditTrailPage";
 import ConfigurationsPage from "../pages/ConfigurationsPage";
 import DashboardPage from "../pages/DashboardPage";
-import DeviceManagementPage from "../pages/InventoryRecordsPage";
+import DeviceManagementPage from "../pages/RepairRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
 import LoginPage from "../pages/LoginPage";
-import OngoingTestingPage from "../pages/OngoingTestingPage";
+import OngoingTestingPage from "../pages/RepairTrackingPage";
 import RepairDeviceCheckPage from "../pages/RepairDeviceCheckPage";
 import RepairDeviceWorkflowPage from "../pages/RepairDeviceWorkflowPage";
+import ReleaseNotesPage from "../pages/ReleaseNotesPage";
+import UserManagementPage from "../pages/UserManagementPage";
+import { DEFAULT_ACCESS_RIGHTS, normalizeAccessRights } from "./lib/accessRights";
 import { getUserDisplayName } from "./lib/repairWorkflow";
 import { supabase } from "./lib/supabase";
 
@@ -41,6 +51,10 @@ function App() {
   const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(false);
   // Keep the Testing Device group collapsed until the user opens the repair workflow.
   const [testingDeviceOpen, setTestingDeviceOpen] = useState(false);
+  // Keep Administration collapsed until the user needs account or release-note setup.
+  const [administrationOpen, setAdministrationOpen] = useState(false);
+  // Persist whether the sidebar stays expanded or only expands while hovered.
+  const [sidebarPinned, setSidebarPinned] = useState(() => localStorage.getItem("endivio-sidebar-pinned") === "true");
   // Store the selected repair workflow id when the user opens the checking page.
   const [activeRepairRecordId, setActiveRepairRecordId] = useState(null);
   // Track whether the repair checking page is opened from a queue for viewing only.
@@ -48,35 +62,81 @@ function App() {
   // Remember where the repair checking page was opened from so Back returns to the right module.
   const [repairBackPage, setRepairBackPage] = useState("myRepairDevice");
   // Persist the selected visual theme so the app keeps the same mode after reload.
-  const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "light");
+  const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "dark");
+  // MUI accepts only light or dark palette modes; pink uses light mode plus CSS theme tokens.
+  const muiPaletteMode = themeMode === "dark" ? "dark" : "light";
   // Store the Supabase Auth session used to protect the application pages.
   const [session, setSession] = useState(null);
   // Store the freshest Supabase Auth user because profile metadata can change after login.
   const [currentUser, setCurrentUser] = useState(null);
+  // Store the public application profile used for status and access-right checks.
+  const [currentAppUser, setCurrentAppUser] = useState(null);
+  // Store login/access messages such as inactive account notifications.
+  const [accessMessage, setAccessMessage] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  // Build the MUI theme from the selected mode while preserving the existing UI styling.
+  // Build the MUI theme from the selected mode while keeping every page on one corporate design system.
   const theme = useMemo(
     () =>
       createTheme({
         palette: {
-          mode: themeMode,
-          primary: { main: "#1976d2" },
+          mode: muiPaletteMode,
+          primary: { main: "#20d0c4", contrastText: "#051312" },
+          secondary: { main: "#7c3aed" },
           background: {
-            default: themeMode === "dark" ? "#111827" : "#f6f8fb",
-            paper: themeMode === "dark" ? "#1f2937" : "#ffffff",
+            default: themeMode === "dark" ? "#101418" : "#f4f7f8",
+            paper: themeMode === "dark" ? "#1a1f24" : "#ffffff",
           },
           text: {
             primary: themeMode === "dark" ? "#f8fafc" : "#172033",
-            secondary: themeMode === "dark" ? "#cbd5e1" : "#4b5b70",
+            secondary: themeMode === "dark" ? "#a7aab4" : "#536174",
           },
+          divider: themeMode === "dark" ? "rgba(255,255,255,0.10)" : "#dde5ef",
+          error: { main: "#ef4444" },
+          success: { main: "#22c55e" },
+          warning: { main: "#f59e0b" },
         },
         typography: {
           fontFamily:
-            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            '"Chakra Petch", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          allVariants: { fontWeight: 400, letterSpacing: 0 },
+          button: { fontWeight: 400, letterSpacing: 0, textTransform: "none" },
         },
-        shape: { borderRadius: 8 },
+        shape: { borderRadius: 14 },
+        components: {
+          // These component defaults give older pages the same reference-inspired card/table/button language.
+          MuiPaper: {
+            styleOverrides: {
+              root: {
+                backgroundImage: "none",
+              },
+            },
+          },
+          MuiButton: {
+            styleOverrides: {
+              root: {
+                borderRadius: 12,
+                boxShadow: "none",
+              },
+            },
+          },
+          MuiChip: {
+            styleOverrides: {
+              root: {
+                borderRadius: 999,
+                fontWeight: 400,
+              },
+            },
+          },
+          MuiOutlinedInput: {
+            styleOverrides: {
+              root: {
+                borderRadius: 12,
+              },
+            },
+          },
+        },
       }),
-    [themeMode]
+    [muiPaletteMode, themeMode]
   );
 
   const toggleThemeMode = () => {
@@ -86,6 +146,13 @@ function App() {
       localStorage.setItem("endivio-theme", next);
       return next;
     });
+  };
+
+  const updateThemeMode = (nextMode) => {
+    // Dashboard uses a dropdown, so accept the selected mode directly instead of toggling.
+    const normalizedMode = ["light", "dark", "pink"].includes(nextMode) ? nextMode : "dark";
+    localStorage.setItem("endivio-theme", normalizedMode);
+    setThemeMode(normalizedMode);
   };
 
   useEffect(() => {
@@ -107,9 +174,27 @@ function App() {
       const { data } = await supabase.auth.getSession();
       // Fetch the user from Supabase Auth so display_name changes are not stuck on the cached session.
       const { data: userData } = data.session ? await supabase.auth.getUser() : { data: { user: null } };
+      const profile = userData.user
+        ? await loadAppUserProfile(userData.user, data.session?.user?.email)
+        : null;
+
+      if (profile?.is_active === false) {
+        // Inactive users are signed out immediately so they cannot access protected modules.
+        await supabase.auth.signOut();
+        if (mounted) {
+          setAccessMessage("Your account is inactive. Please contact the administrator.");
+          setSession(null);
+          setCurrentUser(null);
+          setCurrentAppUser(null);
+          setIsAuthLoading(false);
+        }
+        return;
+      }
+
       if (mounted) {
         setSession(data.session || null);
         setCurrentUser(userData.user || data.session?.user || null);
+        setCurrentAppUser(profile);
         setIsAuthLoading(false);
       }
     }
@@ -119,8 +204,23 @@ function App() {
     const { data: authListener } = supabase?.auth.onAuthStateChange(async (_event, nextSession) => {
       // Refresh the user object after auth changes so dashboard/sidebar display metadata updates.
       const { data: userData } = nextSession ? await supabase.auth.getUser() : { data: { user: null } };
+      const profile = userData.user ? await loadAppUserProfile(userData.user, nextSession?.user?.email) : null;
+
+      if (profile?.is_active === false) {
+        // Block inactive accounts even when a session still exists in local storage.
+        await supabase.auth.signOut();
+        setAccessMessage("Your account is inactive. Please contact the administrator.");
+        setSession(null);
+        setCurrentUser(null);
+        setCurrentAppUser(null);
+        setIsAuthLoading(false);
+        return;
+      }
+
+      setAccessMessage("");
       setSession(nextSession);
       setCurrentUser(userData.user || nextSession?.user || null);
+      setCurrentAppUser(profile);
       setIsAuthLoading(false);
     }) || { data: null };
 
@@ -136,12 +236,35 @@ function App() {
     await supabase.auth.signOut();
     setSession(null);
     setCurrentUser(null);
+    setCurrentAppUser(null);
     setActivePage("dashboard");
   };
 
   const currentUserEmail = currentUser?.email || session?.user?.email || "";
+  // Normalize access rights so missing keys stay visible until an admin turns them off.
+  const currentAccessRights = useMemo(
+    () => normalizeAccessRights(currentAppUser?.access_rights),
+    [currentAppUser?.access_rights]
+  );
   // Build one consistent display name for headers, sidebars, sign-offs, and workflow actions.
-  const currentUserDisplayName = getUserDisplayName(currentUser || session?.user, currentUserEmail);
+  const currentUserDisplayName = currentAppUser?.display_name || getUserDisplayName(currentUser || session?.user, currentUserEmail);
+  const hasAccess = useCallback((pageKey) => currentAccessRights[pageKey] !== false, [currentAccessRights]);
+  const deviceInventoryVisible = ["deviceInventoryRecords", "ongoingTesting", "ConfigurationsPage", "archivedRecords", "auditTrail"].some(hasAccess);
+  const testingDeviceVisible = ["newRepairDevice", "ongoingSupportTesting", "ongoingSeniorTesting", "myRepairDevice", "allRepairDevice", "doneRepairDevice"].some(hasAccess);
+  const administrationVisible = ["users", "releaseNotes"].some(hasAccess);
+  // Render the first allowed page when a user's rights no longer include the selected module.
+  const guardedPageKey = activePage === "repairDeviceCheck" ? repairBackPage : activePage;
+  const visiblePage = session && currentAppUser && !hasAccess(guardedPageKey)
+    ? getFirstAccessiblePage(currentAccessRights)
+    : activePage;
+  const toggleSidebarPinned = () => {
+    // Keep the user's sidebar width preference after browser refresh.
+    setSidebarPinned((current) => {
+      const nextValue = !current;
+      localStorage.setItem("endivio-sidebar-pinned", String(nextValue));
+      return nextValue;
+    });
+  };
 
   return (
     <ThemeProvider theme={theme}>
@@ -151,141 +274,258 @@ function App() {
           <CircularProgress />
         </Box>
       ) : !session ? (
-        <LoginPage mode={themeMode} onLogin={setSession} onToggleMode={toggleThemeMode} />
+        <Box sx={{ minHeight: "100svh" }}>
+          {accessMessage ? (
+            <Alert severity="warning" sx={{ borderRadius: 0 }}>
+              {accessMessage}
+            </Alert>
+          ) : null}
+          <LoginPage mode={themeMode} onLogin={setSession} onToggleMode={toggleThemeMode} />
+        </Box>
       ) : (
-      <Box sx={{ display: "flex", minHeight: "100svh", bgcolor: "background.default" }}>
+      <Box sx={{ bgcolor: "background.default", minHeight: "100svh", overflowX: "hidden" }}>
       <Box
-        className="app-sidebar"
+        sx={{
+          bgcolor: "background.default",
+          display: "flex",
+          minHeight: "100svh",
+          overflow: "visible",
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+      <Box
+        className={`app-sidebar ${sidebarPinned ? "is-pinned" : ""}`}
         component="aside"
         sx={{
-          bgcolor: "#2f3940",
+          bgcolor: "#111418",
+          borderRight: "1px solid rgba(255,255,255,0.10)",
+          bottom: 0,
           color: "#f8fafc",
           display: { xs: "none", md: "flex" },
           flexDirection: "column",
-          position: "sticky",
+          flex: sidebarPinned ? "0 0 245px" : "0 0 64px",
+          left: 0,
+          position: "fixed",
           top: 0,
-          width: 232,
+          width: sidebarPinned ? 245 : 64,
           height: "100svh",
-          overflowY: "auto",
+          overflowY: "hidden",
+          p: 1,
+          transition: "width 160ms ease, flex-basis 160ms ease",
+          zIndex: 20,
+          "&:hover": {
+            flexBasis: "245px",
+            width: 245,
+          },
         }}
       >
-        <SidebarItem
-          active={activePage === "dashboard"}
-          icon={<HomeRoundedIcon fontSize="small" />}
-          label="Dashboard"
-          onClick={() => setActivePage("dashboard")}
-        />
+        <Box className="sidebar-brand" sx={{ alignItems: "center", display: "flex", gap: 1, minHeight: 42, px: 1.25 }}>
+          <Typography className="sidebar-label" variant="caption" sx={{ color: "rgba(255,255,255,0.72) !important", display: "block", fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase" }}>
+            Endivio
+          </Typography>
+          <IconButton
+            className="sidebar-pin-button"
+            onClick={toggleSidebarPinned}
+            size="small"
+            title={sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
+            sx={{
+              border: "1px solid rgba(32,208,196,0.35)",
+              color: "#20d0c4 !important",
+              height: 28,
+              ml: "auto",
+              width: 28,
+            }}
+          >
+            {sidebarPinned ? <PushPinRoundedIcon fontSize="inherit" /> : <PushPinOutlinedIcon fontSize="inherit" />}
+          </IconButton>
+        </Box>
 
-        <SidebarGroup
-          icon={<Inventory2RoundedIcon fontSize="small" />}
-          label="Device Inventory"
-          open={deviceInventoryOpen}
-          onClick={() => setDeviceInventoryOpen((current) => !current)}
-        />
+        {hasAccess("dashboard") ? (
+          <SidebarItem
+            active={visiblePage === "dashboard"}
+            icon={<HomeRoundedIcon fontSize="small" />}
+            label="Dashboard"
+            onClick={() => setActivePage("dashboard")}
+          />
+        ) : null}
 
-        {deviceInventoryOpen ? (
+        {deviceInventoryVisible ? (
+          <SidebarGroup
+            icon={<Inventory2RoundedIcon fontSize="small" />}
+            label="Repair Manangement"
+            open={deviceInventoryOpen}
+            onClick={() => setDeviceInventoryOpen((current) => !current)}
+          />
+        ) : null}
+
+        {deviceInventoryOpen && deviceInventoryVisible ? (
           <Stack>
-            <SidebarItem
-              active={activePage === "deviceInventoryRecords"}
-              child
-              icon={<Inventory2RoundedIcon fontSize="small" />}
-              label="Inventory Records"
-              onClick={() => setActivePage("deviceInventoryRecords")}
-            />
-            <SidebarItem
-              active={activePage === "ongoingTesting"}
-              child
-              icon={<AssessmentRoundedIcon fontSize="small" />}
-              label="Ongoing Testing"
-              onClick={() => setActivePage("ongoingTesting")}
-            />
-            <SidebarItem
-              active={activePage === "ConfigurationsPage"}
-              child
-              icon={<SettingsRoundedIcon fontSize="small" />}
-              label="Configurations"
-              onClick={() => setActivePage("ConfigurationsPage")}
-            />
-            <SidebarItem
-              active={activePage === "archivedRecords"}
-              child
-              icon={<ArchiveRoundedIcon fontSize="small" />}
-              label="Archived Records"
-              onClick={() => setActivePage("archivedRecords")}
-            />
-            <SidebarItem
-              active={activePage === "auditTrail"}
-              child
-              icon={<HistoryRoundedIcon fontSize="small" />}
-              label="Audit Trail"
-              onClick={() => setActivePage("auditTrail")}
-            />
+            {hasAccess("deviceInventoryRecords") ? (
+              <SidebarItem
+                active={visiblePage === "deviceInventoryRecords"}
+                child
+                icon={<Inventory2RoundedIcon fontSize="small" />}
+                label="Repair Records"
+                onClick={() => setActivePage("deviceInventoryRecords")}
+              />
+            ) : null}
+            {hasAccess("ongoingTesting") ? (
+              <SidebarItem
+                active={visiblePage === "ongoingTesting"}
+                child
+                icon={<AssessmentRoundedIcon fontSize="small" />}
+                label="Repair Tracking"
+                onClick={() => setActivePage("ongoingTesting")}
+              />
+            ) : null}
+            {hasAccess("ConfigurationsPage") ? (
+              <SidebarItem
+                active={visiblePage === "ConfigurationsPage"}
+                child
+                icon={<SettingsRoundedIcon fontSize="small" />}
+                label="Configurations"
+                onClick={() => setActivePage("ConfigurationsPage")}
+              />
+            ) : null}
+            {hasAccess("archivedRecords") ? (
+              <SidebarItem
+                active={visiblePage === "archivedRecords"}
+                child
+                icon={<ArchiveRoundedIcon fontSize="small" />}
+                label="Archived Records"
+                onClick={() => setActivePage("archivedRecords")}
+              />
+            ) : null}
+            {hasAccess("auditTrail") ? (
+              <SidebarItem
+                active={visiblePage === "auditTrail"}
+                child
+                icon={<HistoryRoundedIcon fontSize="small" />}
+                label="Audit Trail"
+                onClick={() => setActivePage("auditTrail")}
+              />
+            ) : null}
           </Stack>
         ) : null}
 
-        <SidebarGroup
-          icon={<BuildCircleRoundedIcon fontSize="small" />}
-          label="Testing Device"
-          open={testingDeviceOpen}
-          onClick={() => setTestingDeviceOpen((current) => !current)}
-        />
+        {testingDeviceVisible ? (
+          <SidebarGroup
+            icon={<BuildCircleRoundedIcon fontSize="small" />}
+            label="Testing Device"
+            open={testingDeviceOpen}
+            onClick={() => setTestingDeviceOpen((current) => !current)}
+          />
+        ) : null}
 
-        {testingDeviceOpen ? (
+        {testingDeviceOpen && testingDeviceVisible ? (
           <Stack>
-            <SidebarItem
-              active={activePage === "newRepairDevice"}
-              child
-              icon={<BuildCircleRoundedIcon fontSize="small" />}
-              label="New Repair Device"
-              onClick={() => setActivePage("newRepairDevice")}
-            />
-            <SidebarItem
-              active={activePage === "ongoingSupportTesting" || (activePage === "repairDeviceCheck" && repairBackPage === "ongoingSupportTesting")}
-              child
-              icon={<AssessmentRoundedIcon fontSize="small" />}
-              label="Ongoing Support Testing"
-              onClick={() => setActivePage("ongoingSupportTesting")}
-            />
-            <SidebarItem
-              active={activePage === "ongoingSeniorTesting" || (activePage === "repairDeviceCheck" && repairBackPage === "ongoingSeniorTesting")}
-              child
-              icon={<AssessmentRoundedIcon fontSize="small" />}
-              label="Ongoing Senior Testing"
-              onClick={() => setActivePage("ongoingSeniorTesting")}
-            />
-            <SidebarItem
-              active={activePage === "myRepairDevice" || (activePage === "repairDeviceCheck" && repairBackPage === "myRepairDevice")}
-              child
-              icon={<AssessmentRoundedIcon fontSize="small" />}
-              label="My Repair/Testing Device"
-              onClick={() => setActivePage("myRepairDevice")}
-            />
-            <SidebarItem
-              active={activePage === "doneRepairDevice"}
-              child
-              icon={<ArchiveRoundedIcon fontSize="small" />}
-              label="Done Repair Device"
-              onClick={() => setActivePage("doneRepairDevice")}
-            />
+            {hasAccess("newRepairDevice") ? (
+              <SidebarItem
+                active={visiblePage === "newRepairDevice"}
+                child
+                icon={<BuildCircleRoundedIcon fontSize="small" />}
+                label="New Repair Device"
+                onClick={() => setActivePage("newRepairDevice")}
+              />
+            ) : null}
+            {hasAccess("ongoingSupportTesting") ? (
+              <SidebarItem
+                active={visiblePage === "ongoingSupportTesting" || (visiblePage === "repairDeviceCheck" && repairBackPage === "ongoingSupportTesting")}
+                child
+                icon={<AssessmentRoundedIcon fontSize="small" />}
+                label="Ongoing Support Testing"
+                onClick={() => setActivePage("ongoingSupportTesting")}
+              />
+            ) : null}
+            {hasAccess("ongoingSeniorTesting") ? (
+              <SidebarItem
+                active={visiblePage === "ongoingSeniorTesting" || (visiblePage === "repairDeviceCheck" && repairBackPage === "ongoingSeniorTesting")}
+                child
+                icon={<AssessmentRoundedIcon fontSize="small" />}
+                label="Ongoing Senior Testing"
+                onClick={() => setActivePage("ongoingSeniorTesting")}
+              />
+            ) : null}
+            {hasAccess("myRepairDevice") ? (
+              <SidebarItem
+                active={visiblePage === "myRepairDevice" || (visiblePage === "repairDeviceCheck" && repairBackPage === "myRepairDevice")}
+                child
+                icon={<AssessmentRoundedIcon fontSize="small" />}
+                label="My Repair/Testing Device"
+                onClick={() => setActivePage("myRepairDevice")}
+              />
+            ) : null}
+            {hasAccess("allRepairDevice") ? (
+              <SidebarItem
+                active={visiblePage === "allRepairDevice" || (visiblePage === "repairDeviceCheck" && repairBackPage === "allRepairDevice")}
+                child
+                icon={<AssessmentRoundedIcon fontSize="small" />}
+                label="All Repair Device"
+                onClick={() => setActivePage("allRepairDevice")}
+              />
+            ) : null}
+            {hasAccess("doneRepairDevice") ? (
+              <SidebarItem
+                active={visiblePage === "doneRepairDevice"}
+                child
+                icon={<ArchiveRoundedIcon fontSize="small" />}
+                label="Done Repair Device"
+                onClick={() => setActivePage("doneRepairDevice")}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
+        {administrationVisible ? (
+          <SidebarGroup
+            icon={<AdminPanelSettingsRoundedIcon fontSize="small" />}
+            label="Administration"
+            open={administrationOpen}
+            onClick={() => setAdministrationOpen((current) => !current)}
+          />
+        ) : null}
+
+        {administrationOpen && administrationVisible ? (
+          <Stack>
+            {hasAccess("users") ? (
+              <SidebarItem
+                active={visiblePage === "users"}
+                child
+                icon={<PersonRoundedIcon fontSize="small" />}
+                label="User"
+                onClick={() => setActivePage("users")}
+              />
+            ) : null}
+            {hasAccess("releaseNotes") ? (
+              <SidebarItem
+                active={visiblePage === "releaseNotes"}
+                child
+                icon={<ArticleRoundedIcon fontSize="small" />}
+                label="Release Notes"
+                onClick={() => setActivePage("releaseNotes")}
+              />
+            ) : null}
           </Stack>
         ) : null}
 
         {/* <SidebarItem
-          active={activePage === "testing"}
+          active={visiblePage === "testing"}
           icon={<AssessmentRoundedIcon fontSize="small" />}
           label="Testing Report"
           onClick={() => setActivePage("testing")}
         /> */}
 
-        <Box sx={{ mt: "auto", p: 1.25 }}>
+        <Box className="sidebar-user-panel" sx={{ mt: "auto", p: 1.25 }}>
           <Divider sx={{ borderColor: "rgba(255,255,255,0.12)", mb: 1.25 }} />
-          <Typography variant="caption" sx={{ color: "#9fb0bf", display: "block", mb: 0.5 }}>
+          <Typography className="sidebar-label" variant="caption" sx={{ color: "#9fb0bf", display: "block", mb: 0.5 }}>
             Signed in as
           </Typography>
-          <Typography variant="body2" fontWeight={800} noWrap sx={{ color: "#ffffff", mb: 1 }}>
+          <Typography className="sidebar-label" variant="body2" fontWeight={800} noWrap sx={{ color: "#ffffff", mb: 1 }}>
             {currentUserDisplayName}
           </Typography>
           <Button
+            className="sidebar-logout-button"
             fullWidth
             size="small"
             variant="outlined"
@@ -299,28 +539,40 @@ function App() {
               "&:hover": { borderColor: "#38bdf8", bgcolor: "rgba(56,189,248,0.12)" },
             }}
           >
-            Logout
+            <span className="sidebar-label">Logout</span>
           </Button>
         </Box>
       </Box>
 
-      <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Box sx={{ flex: 1, ml: { md: sidebarPinned ? "245px" : "64px" }, minHeight: "100svh", minWidth: 0, overflow: "visible", transition: "margin-left 160ms ease" }}>
+        <Box sx={{ minHeight: "100%", minWidth: 0 }}>
         {/* Render only the selected module so inactive pages do not keep unnecessary UI state mounted. */}
-        {activePage === "dashboard" ? (
-          <DashboardPage mode={themeMode} onToggleMode={toggleThemeMode} userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} />
+        {visiblePage === "dashboard" && hasAccess("dashboard") ? (
+          <DashboardPage mode={themeMode} onChangeMode={updateThemeMode} onToggleMode={toggleThemeMode} userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} />
         ) : null}
-        {activePage === "deviceInventoryRecords" ? <DeviceManagementPage /> : null}
-        {activePage === "ongoingTesting" ? <OngoingTestingPage /> : null}
-        {activePage === "ConfigurationsPage" ? <ConfigurationsPage /> : null}
-        {activePage === "archivedRecords" ? <ArchivedRecordsPage /> : null}
-        {activePage === "auditTrail" ? <AuditTrailPage /> : null}
-        {activePage === "newRepairDevice" ? <RepairDeviceWorkflowPage mode="new" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("newRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "myRepairDevice" ? <RepairDeviceWorkflowPage mode="my" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = false) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("myRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "ongoingSupportTesting" ? <RepairDeviceWorkflowPage mode="support" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("ongoingSupportTesting"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "ongoingSeniorTesting" ? <RepairDeviceWorkflowPage mode="senior" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("ongoingSeniorTesting"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "doneRepairDevice" ? <RepairDeviceWorkflowPage mode="done" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("doneRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
-        {activePage === "repairDeviceCheck" && activeRepairRecordId ? <RepairDeviceCheckPage readOnly={repairReadOnly} recordId={activeRepairRecordId} userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onBack={() => setActivePage(repairBackPage)} /> : null}
-        {activePage === "testing" ? <DeviceTestingPage /> : null}
+        {visiblePage === "deviceInventoryRecords" && hasAccess("deviceInventoryRecords") ? <DeviceManagementPage /> : null}
+        {visiblePage === "ongoingTesting" && hasAccess("ongoingTesting") ? <OngoingTestingPage /> : null}
+        {visiblePage === "ConfigurationsPage" && hasAccess("ConfigurationsPage") ? <ConfigurationsPage /> : null}
+        {visiblePage === "archivedRecords" && hasAccess("archivedRecords") ? <ArchivedRecordsPage /> : null}
+        {visiblePage === "auditTrail" && hasAccess("auditTrail") ? <AuditTrailPage /> : null}
+        {visiblePage === "newRepairDevice" && hasAccess("newRepairDevice") ? <RepairDeviceWorkflowPage mode="new" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("newRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {visiblePage === "myRepairDevice" && hasAccess("myRepairDevice") ? <RepairDeviceWorkflowPage mode="my" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = false) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("myRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {visiblePage === "allRepairDevice" && hasAccess("allRepairDevice") ? <RepairDeviceWorkflowPage mode="all" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("allRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {visiblePage === "ongoingSupportTesting" && hasAccess("ongoingSupportTesting") ? <RepairDeviceWorkflowPage mode="support" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("ongoingSupportTesting"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {visiblePage === "ongoingSeniorTesting" && hasAccess("ongoingSeniorTesting") ? <RepairDeviceWorkflowPage mode="senior" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("ongoingSeniorTesting"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {visiblePage === "doneRepairDevice" && hasAccess("doneRepairDevice") ? <RepairDeviceWorkflowPage mode="done" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("doneRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
+        {visiblePage === "repairDeviceCheck" && activeRepairRecordId ? <RepairDeviceCheckPage readOnly={repairReadOnly} recordId={activeRepairRecordId} userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onBack={() => setActivePage(repairBackPage)} /> : null}
+        {visiblePage === "users" && hasAccess("users") ? <UserManagementPage currentUserEmail={currentUserEmail} onCurrentUserUpdated={(updatedUser) => { setCurrentAppUser(updatedUser); if (updatedUser.is_active === false) handleLogout(); }} /> : null}
+        {visiblePage === "releaseNotes" && hasAccess("releaseNotes") ? (
+          <ReleaseNotesPage
+            canCreateReleaseNotes={hasAccess("releaseNotesCreate")}
+            userDisplayName={currentUserDisplayName}
+            userEmail={currentUserEmail}
+          />
+        ) : null}
+        {visiblePage === "testing" ? <DeviceTestingPage /> : null}
+        </Box>
+      </Box>
       </Box>
       </Box>
       )}
@@ -331,28 +583,32 @@ function App() {
 function SidebarItem({ active, child = false, icon, label, onClick }) {
   return (
     <Box
+      className="sidebar-nav-item"
       onClick={onClick}
       sx={{
         alignItems: "center",
-        bgcolor: active ? "#1f2933" : "transparent",
-        borderLeft: active ? "4px solid #38bdf8" : "4px solid transparent",
+        bgcolor: active ? "rgba(32,208,196,0.10)" : "transparent",
+        border: "1px solid transparent",
+        borderLeft: active ? "2px solid #20d0c4" : "2px solid transparent",
+        borderRadius: 0,
         color: active ? "#ffffff" : "#dbe7ef",
         cursor: "pointer",
         display: "grid",
         gap: 0.75,
         gridTemplateColumns: "22px 1fr",
-        minHeight: 38,
-        pl: child ? 4 : 1.5,
+        minHeight: 40,
+        mb: 0.4,
+        pl: child ? 3 : 1.25,
         pr: 1,
         py: 0.6,
         "&:hover": {
-          bgcolor: "#37444d",
+          bgcolor: "rgba(255,255,255,0.07)",
           color: "#ffffff",
         },
       }}
     >
       {icon}
-      <Typography variant="body2" fontWeight={active ? 900 : 700} noWrap sx={{ color: "inherit !important" }}>
+      <Typography className="sidebar-label" variant="body2" fontWeight={active ? 800 : 600} noWrap sx={{ color: "inherit !important", fontSize: 12.5 }}>
         {label}
       </Typography>
     </Box>
@@ -362,28 +618,122 @@ function SidebarItem({ active, child = false, icon, label, onClick }) {
 function SidebarGroup({ icon, label, onClick, open }) {
   return (
     <Box
+      className="sidebar-nav-group"
       onClick={onClick}
       sx={{
         alignItems: "center",
-        bgcolor: "#3a454c",
-        color: "#38bdf8",
+        bgcolor: open ? "rgba(32,208,196,0.08)" : "transparent",
+        border: "1px solid transparent",
+        borderRadius: 0,
+        color: "#20d0c4",
         cursor: "pointer",
         display: "grid",
         gap: 0.75,
         gridTemplateColumns: "22px 22px 1fr",
-        minHeight: 38,
-        pl: 1.5,
+        minHeight: 40,
+        mb: 0.4,
+        pl: 1.25,
         pr: 1,
         py: 0.6,
       }}
     >
-      {open ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+      <Box className="sidebar-chevron">
+        {open ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+      </Box>
       {icon}
-      <Typography variant="body2" fontWeight={800} noWrap sx={{ color: "inherit !important" }}>
+      <Typography className="sidebar-label" variant="body2" fontWeight={800} noWrap sx={{ color: "inherit !important", fontSize: 12.5 }}>
         {label}
       </Typography>
     </Box>
   );
+}
+
+function normalizeAppUser(profile, fallbackProfile) {
+  // Convert nullable database values into the shape the app shell expects.
+  return {
+    access_rights: normalizeAccessRights(profile?.access_rights || fallbackProfile?.access_rights),
+    display_name: profile?.display_name || fallbackProfile?.display_name || "",
+    email: profile?.email || fallbackProfile?.email || "",
+    id: profile?.id || fallbackProfile?.id || "",
+    is_active: profile?.is_active !== false,
+  };
+}
+
+async function loadAppUserProfile(user, fallbackEmail = "") {
+  const email = user?.email || fallbackEmail || "";
+  const fallbackProfile = {
+    access_rights: DEFAULT_ACCESS_RIGHTS,
+    display_name: getUserDisplayName(user, email),
+    email,
+    id: user?.id || email,
+    is_active: true,
+  };
+
+  if (!supabase || !user?.id) {
+    return fallbackProfile;
+  }
+
+  // Read the public profile used by Administration > User for status and rights.
+  const { data, error } = await supabase
+    .from("app_users")
+    .select("id, display_name, email, is_active, access_rights")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    // Existing deployments may not have the Administration tables yet; keep login usable until SQL is installed.
+    console.warn("App user profile unavailable:", error.message);
+    return fallbackProfile;
+  }
+
+  if (data) {
+    return normalizeAppUser(data, fallbackProfile);
+  }
+
+  // First login creates a manageable profile so admins can edit display name and access rights later.
+  const { data: inserted, error: insertError } = await supabase
+    .from("app_users")
+    .upsert(
+      {
+        access_rights: DEFAULT_ACCESS_RIGHTS,
+        display_name: fallbackProfile.display_name,
+        email,
+        id: user.id,
+        is_active: true,
+      },
+      { onConflict: "id" }
+    )
+    .select("id, display_name, email, is_active, access_rights")
+    .single();
+
+  if (insertError) {
+    console.warn("App user profile insert failed:", insertError.message);
+    return fallbackProfile;
+  }
+
+  return normalizeAppUser(inserted, fallbackProfile);
+}
+
+function getFirstAccessiblePage(accessRights) {
+  // Keep a user on the first visible page if an admin removes access to the current module.
+  const normalizedRights = normalizeAccessRights(accessRights);
+  const orderedPages = [
+    "dashboard",
+    "deviceInventoryRecords",
+    "ongoingTesting",
+    "ConfigurationsPage",
+    "archivedRecords",
+    "auditTrail",
+    "newRepairDevice",
+    "ongoingSupportTesting",
+    "ongoingSeniorTesting",
+    "myRepairDevice",
+    "allRepairDevice",
+    "doneRepairDevice",
+    "users",
+    "releaseNotes",
+  ];
+  return orderedPages.find((pageKey) => normalizedRights[pageKey] !== false) || "dashboard";
 }
 
 export default App;
