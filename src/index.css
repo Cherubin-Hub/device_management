@@ -240,6 +240,12 @@ html[data-theme] .release-notes-list-table .MuiTableCell-root {
   text-align: left !important;
 }
 
+/* Spare Parts Monitoring form values must read like editable form data, not centered table data. */
+html[data-theme] .spare-parts-monitoring-dialog .MuiInputBase-input,
+html[data-theme] .spare-parts-monitoring-dialog .MuiSelect-select {
+  text-align: left !important;
+}
+
 /* Configuration add/edit dialogs are short forms, so they should not show inner scrollbars. */
 html[data-theme] .configuration-dialog-paper,
 html[data-theme] .configuration-dialog-paper .MuiDialogContent-root {

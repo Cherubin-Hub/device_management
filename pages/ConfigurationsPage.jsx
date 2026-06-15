@@ -36,6 +36,8 @@ export default function ClientStatusPage() {
   const [statuses, setStatuses] = useState([]);
   // Store configurable device types used by the inventory Device Type selector.
   const [deviceTypes, setDeviceTypes] = useState([]);
+  // Store configurable spare-part statuses used by Device Monitoring (Spare Parts).
+  const [sparePartsStatuses, setSparePartsStatuses] = useState([]);
   // Switch between Clients, Status, and Device Types without changing pages.
   const [tabValue, setTabValue] = useState(0);
   const [selectedId, setSelectedId] = useState(null);
@@ -57,7 +59,7 @@ export default function ClientStatusPage() {
 
       setIsLoading(true);
       // Load all configuration lists together because the page can switch tabs instantly.
-      const [clientsResult, statusesResult, deviceTypesResult] = await Promise.all([
+      const [clientsResult, statusesResult, deviceTypesResult, sparePartsStatusesResult] = await Promise.all([
         supabase
           .from("clients")
           .select("id, name, client_code, is_active")
@@ -69,6 +71,10 @@ export default function ClientStatusPage() {
         supabase
           .from("device_types")
           .select("id, name, is_active")
+          .order("name", { ascending: true }),
+        supabase
+          .from("spare_parts_statuses")
+          .select("id, name, color, is_active")
           .order("name", { ascending: true }),
       ]);
 
@@ -90,6 +96,9 @@ export default function ClientStatusPage() {
       setClients(clientsResult.data || []);
       setStatuses(statusesResult.data || []);
       setDeviceTypes(deviceTypesResult.data || []);
+      // Keep the existing configuration tabs usable while the new spare-parts SQL is still pending in Supabase.
+      setSparePartsStatuses(sparePartsStatusesResult.data || []);
+      setError(sparePartsStatusesResult.error ? "Run the Spare Parts Monitoring SQL in SUPABASE.md to enable Spare Parts Status." : "");
       setSelectedId((current) => current || clientsResult.data?.[0]?.id || null);
       setIsLoading(false);
     }
@@ -103,7 +112,7 @@ export default function ClientStatusPage() {
 
   const handleToggleActive = async (type, id, currentStatus) => {
     const table = getConfigTable(type);
-    const sourceItem = getConfigItems(type, { clients, statuses, deviceTypes }).find((item) => item.id === id);
+    const sourceItem = getConfigItems(type, { clients, statuses, deviceTypes, sparePartsStatuses }).find((item) => item.id === id);
     // Toggle active state used by dropdowns without deleting the configuration record.
     const { error: updateError } = await supabase
       .from(table)
@@ -127,8 +136,14 @@ export default function ClientStatusPage() {
           item.id === id ? { ...item, is_active: !currentStatus } : item
         )
       );
-    } else {
+    } else if (type === "deviceType") {
       setDeviceTypes((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, is_active: !currentStatus } : item
+        )
+      );
+    } else {
+      setSparePartsStatuses((current) =>
         current.map((item) =>
           item.id === id ? { ...item, is_active: !currentStatus } : item
         )
@@ -152,7 +167,7 @@ export default function ClientStatusPage() {
     const payload = {
       name: value.name.trim(),
       ...(type === "client" ? { client_code: value.clientCode.trim() } : {}),
-      ...(type === "status" ? { color: value.color || "#4b5563" } : {}),
+      ...(type === "status" || type === "sparePartsStatus" ? { color: value.color || "#4b5563" } : {}),
       is_active: true,
     };
     const table = getConfigTable(type);
@@ -174,8 +189,11 @@ export default function ClientStatusPage() {
     } else if (type === "status") {
       setStatuses((current) => [...current, data].sort(sortByName));
       setSelectedId(data.id);
-    } else {
+    } else if (type === "deviceType") {
       setDeviceTypes((current) => [...current, data].sort(sortByName));
+      setSelectedId(data.id);
+    } else {
+      setSparePartsStatuses((current) => [...current, data].sort(sortByName));
       setSelectedId(data.id);
     }
 
@@ -197,7 +215,7 @@ export default function ClientStatusPage() {
     const payload = {
       name: value.name.trim(),
       ...(type === "client" ? { client_code: value.clientCode.trim() } : {}),
-      ...(type === "status" ? { color: value.color || "#4b5563" } : {}),
+      ...(type === "status" || type === "sparePartsStatus" ? { color: value.color || "#4b5563" } : {}),
     };
     // Update an existing configuration option while preserving its database identifier.
     const { data, error: updateError } = await supabase
@@ -212,7 +230,7 @@ export default function ClientStatusPage() {
       return;
     }
 
-    const previousItem = getConfigItems(type, { clients, statuses, deviceTypes }).find((item) => item.id === id);
+    const previousItem = getConfigItems(type, { clients, statuses, deviceTypes, sparePartsStatuses }).find((item) => item.id === id);
     if (type === "client") {
       setClients((current) =>
         current.map((item) => (item.id === id ? data : item)).sort(sortByName)
@@ -221,8 +239,12 @@ export default function ClientStatusPage() {
       setStatuses((current) =>
         current.map((item) => (item.id === id ? data : item)).sort(sortByName)
       );
-    } else {
+    } else if (type === "deviceType") {
       setDeviceTypes((current) =>
+        current.map((item) => (item.id === id ? data : item)).sort(sortByName)
+      );
+    } else {
+      setSparePartsStatuses((current) =>
         current.map((item) => (item.id === id ? data : item)).sort(sortByName)
       );
     }
@@ -243,7 +265,7 @@ export default function ClientStatusPage() {
 
   const handleDeleteOption = async (type, id) => {
     const table = getConfigTable(type);
-    const itemToDelete = getConfigItems(type, { clients, statuses, deviceTypes }).find((item) => item.id === id);
+    const itemToDelete = getConfigItems(type, { clients, statuses, deviceTypes, sparePartsStatuses }).find((item) => item.id === id);
     // Delete configuration values only when the user explicitly chooses the row action.
     const { error: deleteError } = await supabase.from(table).delete().eq("id", id);
 
@@ -263,10 +285,15 @@ export default function ClientStatusPage() {
         setSelectedId((current) =>
           current === id ? statuses.find((item) => item.id !== id)?.id || null : current
         );
-      } else {
+      } else if (type === "deviceType") {
         setDeviceTypes((current) => current.filter((item) => item.id !== id));
         setSelectedId((current) =>
           current === id ? deviceTypes.find((item) => item.id !== id)?.id || null : current
+        );
+      } else {
+        setSparePartsStatuses((current) => current.filter((item) => item.id !== id));
+        setSelectedId((current) =>
+          current === id ? sparePartsStatuses.find((item) => item.id !== id)?.id || null : current
         );
       }
     }
@@ -283,9 +310,9 @@ export default function ClientStatusPage() {
     });
   };
 
-  const currentItems = tabValue === 0 ? clients : tabValue === 1 ? statuses : deviceTypes;
+  const currentItems = tabValue === 0 ? clients : tabValue === 1 ? statuses : tabValue === 2 ? deviceTypes : sparePartsStatuses;
   // Determine which table and dialog fields should be used for the active tab.
-  const itemType = tabValue === 0 ? "client" : tabValue === 1 ? "status" : "deviceType";
+  const itemType = tabValue === 0 ? "client" : tabValue === 1 ? "status" : tabValue === 2 ? "deviceType" : "sparePartsStatus";
   // Keep loading and empty states aligned to the active tab's column count.
   const tableColumnCount = itemType === "deviceType" ? 4 : 5;
   // Slice the active configuration rows while keeping edit/delete ids unchanged.
@@ -335,7 +362,7 @@ export default function ClientStatusPage() {
               Configurations
             </Typography>
             <Typography className="module-page-description" variant="caption" color="text.secondary">
-              Manage clients, status, and device types. Enable or disable them as needed.
+              Manage clients, statuses, device types, and spare parts statuses used by system dropdowns.
             </Typography>
           </Box>
         </Stack>
@@ -393,6 +420,7 @@ export default function ClientStatusPage() {
             <Tab align="center" label="Clients" />
             <Tab align="center" label="Status" />
             <Tab align="center" label="Device Types" />
+            <Tab align="center" label="Spare Parts Status" />
           </Tabs>
         </Box>
         <TableContainer sx={{ overflowX: "auto" }}>
@@ -425,7 +453,7 @@ export default function ClientStatusPage() {
               <TableRow>
                 {itemType === "client" ? <TableCell width={140}>Client Code</TableCell> : null}
                 <TableCell align="center">{getConfigNameColumn(itemType)}</TableCell>
-                {itemType === "status" ? <TableCell align="center">Color</TableCell> : null}
+                {itemType === "status" || itemType === "sparePartsStatus" ? <TableCell align="center">Color</TableCell> : null}
                 <TableCell align="center">Status</TableCell>
                 <TableCell width={120} align="center">Enabled</TableCell>
                 <TableCell width={96} align="center">Actions</TableCell>
@@ -493,7 +521,7 @@ export default function ClientStatusPage() {
                         {item.name}
                       </Typography>
                     </TableCell>
-                    {itemType === "status" ? (
+                    {itemType === "status" || itemType === "sparePartsStatus" ? (
                       <TableCell align="center">
                         <Box
                           sx={{
@@ -609,14 +637,16 @@ const getConfigTable = (type) => {
   // Map the active configuration tab to the Supabase table it manages.
   if (type === "client") return "clients";
   if (type === "status") return "statuses";
-  return "device_types";
+  if (type === "deviceType") return "device_types";
+  return "spare_parts_statuses";
 };
 
 const getConfigItems = (type, collections) => {
   // Return the correct local state array for the active configuration tab.
   if (type === "client") return collections.clients;
   if (type === "status") return collections.statuses;
-  return collections.deviceTypes;
+  if (type === "deviceType") return collections.deviceTypes;
+  return collections.sparePartsStatuses;
 };
 
 const getConfigLabel = (type, item) => {
@@ -630,21 +660,24 @@ const getConfigTypeLabel = (type) => {
   // Build lowercase labels used inside audit trail sentences.
   if (type === "client") return "client";
   if (type === "status") return "status";
-  return "device type";
+  if (type === "deviceType") return "device type";
+  return "spare parts status";
 };
 
 const getConfigTypeTitle = (type) => {
   // Build title-case labels used by buttons, empty states, and dialogs.
   if (type === "client") return "Client";
   if (type === "status") return "Status";
-  return "Device Type";
+  if (type === "deviceType") return "Device Type";
+  return "Spare Parts Status";
 };
 
 const getConfigNameColumn = (type) => {
   // Build the name column label based on the active configuration tab.
   if (type === "client") return "Client Name";
   if (type === "status") return "Status Name";
-  return "Device Type";
+  if (type === "deviceType") return "Device Type";
+  return "Spare Parts Status";
 };
 
 function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, onUpdate }) {
@@ -709,7 +742,7 @@ function ClientStatusDialog({ initialValue, itemType, mode, onClose, onCreate, o
               }
             />
           ) : null}
-          {itemType === "status" ? (
+          {itemType === "status" || itemType === "sparePartsStatus" ? (
             <TextField
               label="Color"
               type="color"

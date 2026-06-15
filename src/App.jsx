@@ -32,6 +32,7 @@ import ArchivedRecordsPage from "../pages/ArchivedRecordsPage";
 import AuditTrailPage from "../pages/AuditTrailPage";
 import ConfigurationsPage from "../pages/ConfigurationsPage";
 import DashboardPage from "../pages/DashboardPage";
+import DeviceMonitoringSparePartsPage from "../pages/DeviceMonitoringSparePartsPage";
 import DeviceManagementPage from "../pages/RepairRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
 import LoginPage from "../pages/LoginPage";
@@ -49,6 +50,8 @@ function App() {
   const [activePage, setActivePage] = useState("dashboard");
   // Keep the Device Inventory group collapsed on refresh so child modules appear only after the user clicks it.
   const [deviceInventoryOpen, setDeviceInventoryOpen] = useState(false);
+  // Keep the spare-parts inventory group collapsed until the user opens that monitoring area.
+  const [sparePartsInventoryOpen, setSparePartsInventoryOpen] = useState(false);
   // Keep the Testing Device group collapsed until the user opens the repair workflow.
   const [testingDeviceOpen, setTestingDeviceOpen] = useState(false);
   // Keep Administration collapsed until the user needs account or release-note setup.
@@ -249,9 +252,10 @@ function App() {
   // Build one consistent display name for headers, sidebars, sign-offs, and workflow actions.
   const currentUserDisplayName = currentAppUser?.display_name || getUserDisplayName(currentUser || session?.user, currentUserEmail);
   const hasAccess = useCallback((pageKey) => currentAccessRights[pageKey] !== false, [currentAccessRights]);
-  const deviceInventoryVisible = ["deviceInventoryRecords", "ongoingTesting", "ConfigurationsPage", "archivedRecords", "auditTrail"].some(hasAccess);
+  const repairManagementVisible = ["deviceInventoryRecords", "ongoingTesting", "archivedRecords", "auditTrail"].some(hasAccess);
+  const sparePartsInventoryVisible = ["deviceMonitoringSpareParts"].some(hasAccess);
   const testingDeviceVisible = ["newRepairDevice", "ongoingSupportTesting", "ongoingSeniorTesting", "myRepairDevice", "allRepairDevice", "doneRepairDevice"].some(hasAccess);
-  const administrationVisible = ["users", "releaseNotes"].some(hasAccess);
+  const administrationVisible = ["users", "ConfigurationsPage", "releaseNotes"].some(hasAccess);
   // Render the first allowed page when a user's rights no longer include the selected module.
   const guardedPageKey = activePage === "repairDeviceCheck" ? repairBackPage : activePage;
   const visiblePage = session && currentAppUser && !hasAccess(guardedPageKey)
@@ -350,16 +354,16 @@ function App() {
           />
         ) : null}
 
-        {deviceInventoryVisible ? (
+        {repairManagementVisible ? (
           <SidebarGroup
             icon={<Inventory2RoundedIcon fontSize="small" />}
-            label="Repair Manangement"
+            label="Repair Management"
             open={deviceInventoryOpen}
             onClick={() => setDeviceInventoryOpen((current) => !current)}
           />
         ) : null}
 
-        {deviceInventoryOpen && deviceInventoryVisible ? (
+        {deviceInventoryOpen && repairManagementVisible ? (
           <Stack>
             {hasAccess("deviceInventoryRecords") ? (
               <SidebarItem
@@ -379,15 +383,6 @@ function App() {
                 onClick={() => setActivePage("ongoingTesting")}
               />
             ) : null}
-            {hasAccess("ConfigurationsPage") ? (
-              <SidebarItem
-                active={visiblePage === "ConfigurationsPage"}
-                child
-                icon={<SettingsRoundedIcon fontSize="small" />}
-                label="Configurations"
-                onClick={() => setActivePage("ConfigurationsPage")}
-              />
-            ) : null}
             {hasAccess("archivedRecords") ? (
               <SidebarItem
                 active={visiblePage === "archivedRecords"}
@@ -404,6 +399,29 @@ function App() {
                 icon={<HistoryRoundedIcon fontSize="small" />}
                 label="Audit Trail"
                 onClick={() => setActivePage("auditTrail")}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
+        {sparePartsInventoryVisible ? (
+          <SidebarGroup
+            icon={<Inventory2RoundedIcon fontSize="small" />}
+            label="Device Inventory"
+            open={sparePartsInventoryOpen}
+            onClick={() => setSparePartsInventoryOpen((current) => !current)}
+          />
+        ) : null}
+
+        {sparePartsInventoryOpen && sparePartsInventoryVisible ? (
+          <Stack>
+            {hasAccess("deviceMonitoringSpareParts") ? (
+              <SidebarItem
+                active={visiblePage === "deviceMonitoringSpareParts"}
+                child
+                icon={<Inventory2RoundedIcon fontSize="small" />}
+                label="Device Monitoring (Spare Parts)"
+                onClick={() => setActivePage("deviceMonitoringSpareParts")}
               />
             ) : null}
           </Stack>
@@ -497,6 +515,15 @@ function App() {
                 onClick={() => setActivePage("users")}
               />
             ) : null}
+            {hasAccess("ConfigurationsPage") ? (
+              <SidebarItem
+                active={visiblePage === "ConfigurationsPage"}
+                child
+                icon={<SettingsRoundedIcon fontSize="small" />}
+                label="Configurations"
+                onClick={() => setActivePage("ConfigurationsPage")}
+              />
+            ) : null}
             {hasAccess("releaseNotes") ? (
               <SidebarItem
                 active={visiblePage === "releaseNotes"}
@@ -552,6 +579,7 @@ function App() {
         ) : null}
         {visiblePage === "deviceInventoryRecords" && hasAccess("deviceInventoryRecords") ? <DeviceManagementPage /> : null}
         {visiblePage === "ongoingTesting" && hasAccess("ongoingTesting") ? <OngoingTestingPage /> : null}
+        {visiblePage === "deviceMonitoringSpareParts" && hasAccess("deviceMonitoringSpareParts") ? <DeviceMonitoringSparePartsPage /> : null}
         {visiblePage === "ConfigurationsPage" && hasAccess("ConfigurationsPage") ? <ConfigurationsPage /> : null}
         {visiblePage === "archivedRecords" && hasAccess("archivedRecords") ? <ArchivedRecordsPage /> : null}
         {visiblePage === "auditTrail" && hasAccess("auditTrail") ? <AuditTrailPage /> : null}
@@ -721,9 +749,9 @@ function getFirstAccessiblePage(accessRights) {
     "dashboard",
     "deviceInventoryRecords",
     "ongoingTesting",
-    "ConfigurationsPage",
     "archivedRecords",
     "auditTrail",
+    "deviceMonitoringSpareParts",
     "newRepairDevice",
     "ongoingSupportTesting",
     "ongoingSeniorTesting",
@@ -731,6 +759,7 @@ function getFirstAccessiblePage(accessRights) {
     "allRepairDevice",
     "doneRepairDevice",
     "users",
+    "ConfigurationsPage",
     "releaseNotes",
   ];
   return orderedPages.find((pageKey) => normalizedRights[pageKey] !== false) || "dashboard";

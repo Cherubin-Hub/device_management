@@ -1,11 +1,11 @@
 // Central list of modules used by Administration > User access-right checkboxes and sidebar visibility.
 export const ACCESS_RIGHT_OPTIONS = [
   { key: "dashboard", label: "Dashboard", group: "General" },
-  { key: "deviceInventoryRecords", label: "Inventory Records", group: "Device Inventory" },
-  { key: "ongoingTesting", label: "Ongoing Testing", group: "Device Inventory" },
-  { key: "ConfigurationsPage", label: "Configurations", group: "Device Inventory" },
-  { key: "archivedRecords", label: "Archived Records", group: "Device Inventory" },
-  { key: "auditTrail", label: "Audit Trail", group: "Device Inventory" },
+  { key: "deviceInventoryRecords", label: "Repair Records", group: "Repair Management" },
+  { key: "ongoingTesting", label: "Repair Tracking", group: "Repair Management" },
+  { key: "archivedRecords", label: "Archived Records", group: "Repair Management" },
+  { key: "auditTrail", label: "Audit Trail", group: "Repair Management" },
+  { key: "deviceMonitoringSpareParts", label: "Device Monitoring (Spare Parts)", group: "Device Inventory" },
   { key: "newRepairDevice", label: "New Repair Device", group: "Testing Device" },
   { key: "ongoingSupportTesting", label: "Ongoing Support Testing", group: "Testing Device" },
   { key: "ongoingSeniorTesting", label: "Ongoing Senior Testing", group: "Testing Device" },
@@ -13,6 +13,7 @@ export const ACCESS_RIGHT_OPTIONS = [
   { key: "allRepairDevice", label: "All Repair Device", group: "Testing Device" },
   { key: "doneRepairDevice", label: "Done Repair Device", group: "Testing Device" },
   { key: "users", label: "User", group: "Administration" },
+  { key: "ConfigurationsPage", label: "Configurations", group: "Administration" },
   { key: "releaseNotesCreate", label: "Create Release Notes", group: "Administration", defaultAccess: false },
   { key: "releaseNotes", label: "Release Notes", group: "Administration" },
 ];
