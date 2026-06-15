@@ -36,6 +36,8 @@ const blankReleaseNote = {
 };
 
 export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDisplayName = "", userEmail = "" }) {
+  // The create permission also controls editing release notes because both actions change release-note content.
+  const canEditReleaseNotes = canCreateReleaseNotes;
   // Store all release note rows displayed in the no-header list.
   const [notes, setNotes] = useState([]);
   // Store the note currently opened in the editor; null means the list is visible.
@@ -108,6 +110,12 @@ export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDi
   };
 
   const handleSave = async () => {
+    if (!canEditReleaseNotes) {
+      setError("You do not have permission to save release note changes.");
+      setConfirmSaveOpen(false);
+      return;
+    }
+
     const payload = {
       content: form.content.trim(),
       title: form.title.trim(),
@@ -115,10 +123,6 @@ export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDi
     };
 
     if (!payload.title) return;
-    if (!editingNote?.id && !canCreateReleaseNotes) {
-      setError("You do not have permission to create release notes.");
-      return;
-    }
     setIsSaving(true);
 
     if (editingNote?.id) {
@@ -211,7 +215,7 @@ export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDi
                 Release Notes Editor
               </Typography>
               <Typography className="module-page-description" variant="caption" color="text.secondary">
-                Encode the release note name and content.
+                {canEditReleaseNotes ? "Encode the release note name and content." : "Review release note name and content."}
               </Typography>
             </Box>
           </Stack>
@@ -219,9 +223,11 @@ export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDi
             <Button startIcon={<ArrowBackRoundedIcon />} variant="outlined" onClick={() => setEditingNote(null)}>
               Back
             </Button>
-            <Button startIcon={<SaveRoundedIcon />} variant="contained" onClick={() => setConfirmSaveOpen(true)} disabled={!form.title.trim()}>
-              Save
-            </Button>
+            {canEditReleaseNotes ? (
+              <Button startIcon={<SaveRoundedIcon />} variant="contained" onClick={() => setConfirmSaveOpen(true)} disabled={!form.title.trim()}>
+                Save
+              </Button>
+            ) : null}
           </Stack>
         </Stack>
 
@@ -237,9 +243,11 @@ export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDi
               required
               size="small"
               value={form.title}
-              slotProps={{ inputLabel: { shrink: true } }}
+              slotProps={{ input: { readOnly: !canEditReleaseNotes }, inputLabel: { shrink: true } }}
               sx={editorFieldSx}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+              onChange={(event) => {
+                if (canEditReleaseNotes) setForm((current) => ({ ...current, title: event.target.value }));
+              }}
             />
             <TextField
               className="release-notes-editor-field"
@@ -247,9 +255,11 @@ export default function ReleaseNotesPage({ canCreateReleaseNotes = false, userDi
               multiline
               minRows={12}
               value={form.content}
-              slotProps={{ inputLabel: { shrink: true } }}
+              slotProps={{ input: { readOnly: !canEditReleaseNotes }, inputLabel: { shrink: true } }}
               sx={editorFieldSx}
-              onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
+              onChange={(event) => {
+                if (canEditReleaseNotes) setForm((current) => ({ ...current, content: event.target.value }));
+              }}
             />
           </Stack>
         </Paper>
