@@ -1,5 +1,6 @@
 import {
   Box,
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -7,6 +8,7 @@ import {
   DialogTitle,
   MenuItem,
   Paper,
+  Snackbar,
   Stack,
   Table,
   TableBody,
@@ -20,9 +22,12 @@ import {
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import ClearRoundedIcon from "@mui/icons-material/ClearRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
-import { useEffect, useMemo, useState } from "react";
+import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx-js-style";
 import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { paginateRows } from "../src/lib/pagination.js";
@@ -53,6 +58,16 @@ const blankSparePartRecord = {
 };
 
 const allDeviceTypesFilterValue = "__all_device_types__";
+const allClientsFilterValue = "__all_clients__";
+const sparePartsExportHeaders = [
+  "Device No.",
+  "Client Name",
+  "Device Type",
+  "Box Number/Serial Number*",
+  "QTY",
+  "Remarks",
+  ...sparePartColumns.map((column) => column.label),
+];
 
 const compactSelectMenuProps = {
   marginThreshold: 12,
@@ -74,9 +89,13 @@ export default function DeviceMonitoringSparePartsPage() {
   const [dialogMode, setDialogMode] = useState(null);
   const [draftDeviceTypeFilter, setDraftDeviceTypeFilter] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
+  const [draftClientFilter, setDraftClientFilter] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
   const [error, setError] = useState("");
+  const [importNotice, setImportNotice] = useState({ message: "", severity: "success" });
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     let ignore = false;
@@ -155,9 +174,28 @@ export default function DeviceMonitoringSparePartsPage() {
   );
 
   const filteredRecords = useMemo(
-    () => records.filter((record) => !deviceTypeFilter || record.deviceTypeId === deviceTypeFilter),
-    [deviceTypeFilter, records]
+    () =>
+      records.filter(
+        (record) =>
+          (!deviceTypeFilter || record.deviceTypeId === deviceTypeFilter) &&
+          (!clientFilter || record.clientId === clientFilter)
+      ),
+    [clientFilter, deviceTypeFilter, records]
   );
+
+  const clientFilterOptions = useMemo(() => {
+    const clientsById = new Map();
+
+    records.forEach((record) => {
+      if (!record.clientId || clientsById.has(record.clientId)) return;
+      clientsById.set(record.clientId, {
+        id: record.clientId,
+        name: record.clientName || record.clientCode || "Unnamed Client",
+      });
+    });
+
+    return Array.from(clientsById.values()).sort((first, second) => first.name.localeCompare(second.name));
+  }, [records]);
 
   const paginatedRecords = useMemo(
     () => paginateRows(filteredRecords, page),
@@ -252,6 +290,134 @@ export default function DeviceMonitoringSparePartsPage() {
     setSelectedId(records.find((record) => record.id !== selectedRecord.id)?.id || null);
   };
 
+  const handleExport = () => {
+    const generatedDate = formatDateForFile(new Date());
+    const rows = filteredRecords.map((record, index) => [
+      index + 1,
+      record.clientName || "",
+      record.deviceTypeName || "",
+      record.boxSerialNumber || "",
+      getAvailableQuantity(record.parts),
+      record.remarks || "",
+      ...sparePartColumns.map((column) => record.parts[column.key] || ""),
+    ]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["Device Monitoring (Spare Parts)"],
+      ["Date Generated", generatedDate],
+      [],
+      sparePartsExportHeaders,
+      ...rows,
+    ]);
+    worksheet["!cols"] = [
+      { wch: 12 },
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 28 },
+      { wch: 10 },
+      { wch: 32 },
+      ...sparePartColumns.map(() => ({ wch: 22 })),
+    ];
+    worksheet["!rows"] = [{ hpt: 24 }, { hpt: 20 }, { hpt: 10 }, { hpt: 28 }, ...rows.map(() => ({ hpt: 22 }))];
+    applySparePartsWorkbookStyles(worksheet, sparePartsExportHeaders.length, rows.length);
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Spare Parts Monitoring");
+    XLSX.writeFile(workbook, `Device-Monitoring-(Spare Parts)-${generatedDate}.xlsx`, { bookType: "xlsx" });
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setError("");
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const importedRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const parsedRecords = parseSparePartsImportRows(importedRows, clients, deviceTypes, sparePartsStatuses);
+
+      if (!parsedRecords.length) {
+        setImportNotice({
+          message: "Import stopped. The selected file does not contain any spare parts monitoring records.",
+          severity: "error",
+        });
+        return;
+      }
+
+      const uniqueImportRecords = getLatestRecordBySerial(parsedRecords);
+      const existingBySerial = new Map(records.map((record) => [normalizeImportKey(record.boxSerialNumber), record]));
+      const recordsToUpdate = uniqueImportRecords.filter((record) => existingBySerial.has(normalizeImportKey(record.boxSerialNumber)));
+      const recordsToInsert = uniqueImportRecords.filter((record) => !existingBySerial.has(normalizeImportKey(record.boxSerialNumber)));
+
+      const updatedResults = await Promise.all(
+        recordsToUpdate.map((record) => {
+          const existingRecord = existingBySerial.get(normalizeImportKey(record.boxSerialNumber));
+          return supabase
+            .from("spare_parts_inventory")
+            .update({ ...mapSparePartToDb(record), updated_at: new Date().toISOString() })
+            .eq("id", existingRecord.id)
+            .select("*, clients ( id, name, client_code ), device_types ( id, name )")
+            .single();
+        })
+      );
+      const firstUpdateError = updatedResults.find((result) => result.error)?.error;
+
+      if (firstUpdateError) {
+        setImportNotice({ message: firstUpdateError.message, severity: "error" });
+        return;
+      }
+
+      const insertPayloads = recordsToInsert.map(mapSparePartToDb);
+      const insertResult = insertPayloads.length
+        ? await supabase
+            .from("spare_parts_inventory")
+            .insert(insertPayloads)
+            .select("*, clients ( id, name, client_code ), device_types ( id, name )")
+        : { data: [], error: null };
+
+      if (insertResult.error) {
+        setImportNotice({ message: insertResult.error.message, severity: "error" });
+        return;
+      }
+
+      const updatedRecords = updatedResults.map((result) => mapSparePartFromDb(result.data));
+      const insertedRecords = (insertResult.data || []).map(mapSparePartFromDb);
+      const nextChangedRecords = [...updatedRecords, ...insertedRecords];
+
+      setRecords((current) => {
+        const updatedById = new Map(updatedRecords.map((record) => [record.id, record]));
+        const currentWithUpdates = current.map((record) => updatedById.get(record.id) || record);
+        return [...currentWithUpdates, ...insertedRecords];
+      });
+      setSelectedId(nextChangedRecords[0]?.id || selectedId);
+      setImportNotice({
+        message: `Import completed. ${insertedRecords.length} new record(s) added and ${updatedRecords.length} existing record(s) updated.`,
+        severity: "success",
+      });
+
+      await logAuditEvent({
+        action: "IMPORT",
+        afterData: {
+          inserted: insertPayloads,
+          updated: recordsToUpdate.map(mapSparePartToDb),
+        },
+        entityId: "bulk-import",
+        entityTable: "spare_parts_inventory",
+        module: "Device Monitoring (Spare Parts)",
+        recordLabel: file.name,
+        summary: `Imported spare parts monitoring file ${file.name}: ${insertedRecords.length} added, ${updatedRecords.length} updated.`,
+      });
+    } catch (importException) {
+      setImportNotice({
+        message: importException.message || "Failed to import spare parts monitoring file.",
+        severity: "error",
+      });
+    }
+  };
+
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
       <Stack
@@ -288,6 +454,13 @@ export default function DeviceMonitoringSparePartsPage() {
         </Stack>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <input
+            ref={importInputRef}
+            accept=".xlsx,.xls"
+            hidden
+            type="file"
+            onChange={handleImportFile}
+          />
           <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setDialogMode("new")}>
             Add New Record
           </Button>
@@ -296,6 +469,12 @@ export default function DeviceMonitoringSparePartsPage() {
           </Button>
           <Button size="small" variant="contained" color="error" startIcon={<DeleteRoundedIcon />} disabled={!selectedRecord} onClick={handleDelete}>
             Delete
+          </Button>
+          <Button size="small" variant="contained" startIcon={<UploadFileRoundedIcon />} onClick={() => importInputRef.current?.click()}>
+            Import
+          </Button>
+          <Button size="small" variant="contained" startIcon={<DownloadRoundedIcon />} onClick={handleExport}>
+            Export
           </Button>
         </Stack>
       </Stack>
@@ -320,6 +499,24 @@ export default function DeviceMonitoringSparePartsPage() {
               </MenuItem>
             ))}
           </TextField>
+          <TextField
+            select
+            size="small"
+            label="Client Name"
+            value={draftClientFilter || allClientsFilterValue}
+            onChange={(event) =>
+              setDraftClientFilter(event.target.value === allClientsFilterValue ? "" : event.target.value)
+            }
+            SelectProps={{ MenuProps: compactSelectMenuProps }}
+            sx={{ minWidth: 220 }}
+          >
+            <MenuItem value={allClientsFilterValue}>All Client</MenuItem>
+            {clientFilterOptions.map((client) => (
+              <MenuItem key={client.id} value={client.id}>
+                {client.name}
+              </MenuItem>
+            ))}
+          </TextField>
           <Button
             size="small"
             variant="outlined"
@@ -327,6 +524,7 @@ export default function DeviceMonitoringSparePartsPage() {
             onClick={() => {
               setPage(1);
               setDeviceTypeFilter(draftDeviceTypeFilter);
+              setClientFilter(draftClientFilter);
             }}
           >
             Apply
@@ -339,6 +537,8 @@ export default function DeviceMonitoringSparePartsPage() {
               setPage(1);
               setDraftDeviceTypeFilter("");
               setDeviceTypeFilter("");
+              setDraftClientFilter("");
+              setClientFilter("");
             }}
           >
             Clear
@@ -347,10 +547,27 @@ export default function DeviceMonitoringSparePartsPage() {
       </Paper>
 
       {error ? (
-        <Box sx={{ bgcolor: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 1.5, color: "#be123c", mb: 2, p: 1.5 }}>
+        <Box sx={{ mb: 2 }}>
+          <Alert severity="error" onClose={() => setError("")}>
           {error}
+          </Alert>
         </Box>
       ) : null}
+
+      <Snackbar
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        autoHideDuration={6000}
+        open={Boolean(importNotice.message)}
+        onClose={() => setImportNotice({ message: "", severity: "success" })}
+      >
+        <Alert
+          severity={importNotice.severity}
+          onClose={() => setImportNotice({ message: "", severity: "success" })}
+          sx={{ width: "100%" }}
+        >
+          {importNotice.message}
+        </Alert>
+      </Snackbar>
 
       <Paper elevation={0} sx={{ border: "1px solid #dde5ef", borderRadius: 2, overflow: "hidden" }}>
         <TableContainer className="inventory-records-table-scroll" sx={{ overflowX: "auto" }}>
@@ -567,11 +784,158 @@ const mapSparePartToDb = (item) => ({
   device_no: null,
   client_id: item.clientId || null,
   device_type_id: item.deviceTypeId || null,
-  box_serial_number: item.boxSerialNumber || null,
+  box_serial_number: item.boxSerialNumber?.trim() || null,
   quantity_available: getAvailableQuantity(item.parts),
   remarks: item.remarks || null,
   parts_status: item.parts || {},
 });
+
+// Convert worksheet rows into database-ready records while validating Configuration lookups.
+const parseSparePartsImportRows = (rows, clients, deviceTypes, statuses) => {
+  const clientLookup = createLookupMap(clients, ["name", "client_code"]);
+  const deviceTypeLookup = createLookupMap(deviceTypes, ["name"]);
+  const statusLookup = createLookupMap(statuses, ["name"]);
+  const defaultNotApplicableStatus = statusLookup.get("n/a");
+
+  if (!defaultNotApplicableStatus) {
+    throw new Error('Import stopped. Please add "N/A" in Configurations > Spare Parts Status before importing.');
+  }
+
+  return rows
+    .map((row, rowIndex) => {
+      const rowNumber = rowIndex + 2;
+      const clientText = getImportValue(row, ["Client Name", "Client", "Client Code"]);
+      const deviceTypeText = getImportValue(row, ["Device Type", "DeviceType"]);
+      const serialText = getImportValue(row, [
+        "Box Number / Serial Number",
+        "Box Number/Serial Number*",
+        "BOX NUMBER/SERIAL NUMBER",
+        "Box Number",
+        "Serial Number",
+      ]);
+      const remarksText = getImportValue(row, ["Remarks", "Remark"]);
+
+      const client = clientText ? clientLookup.get(normalizeImportKey(clientText)) : null;
+      const deviceType = deviceTypeLookup.get(normalizeImportKey(deviceTypeText));
+
+      if (!clientText) throw new Error(`Import row ${rowNumber}: Client Name is required.`);
+      if (!client) throw new Error(`Import row ${rowNumber}: client "${clientText}" is not configured.`);
+      if (!deviceTypeText) throw new Error(`Import row ${rowNumber}: Device Type is required.`);
+      if (!deviceType) throw new Error(`Import row ${rowNumber}: device type "${deviceTypeText}" is not configured.`);
+      if (!serialText) throw new Error(`Import row ${rowNumber}: Box Number / Serial Number is required.`);
+
+      const parts = {};
+      sparePartColumns.forEach((column) => {
+        const statusText = getImportValue(row, [column.label]);
+        if (!statusText) {
+          parts[column.key] = defaultNotApplicableStatus.name;
+          return;
+        }
+
+        const configuredStatus = statusLookup.get(normalizeImportKey(statusText));
+        if (!configuredStatus) {
+          throw new Error(`Import row ${rowNumber}: status "${statusText}" for ${column.label} is not configured.`);
+        }
+        parts[column.key] = configuredStatus.name;
+      });
+
+      return {
+        clientId: client?.id || "",
+        clientName: client?.name || "",
+        clientCode: client?.client_code || "",
+        deviceTypeId: deviceType.id,
+        deviceTypeName: deviceType.name,
+        boxSerialNumber: serialText,
+        remarks: remarksText,
+        parts,
+      };
+    })
+    .filter((record) => record.deviceTypeId || record.boxSerialNumber || record.clientId || record.remarks);
+};
+
+// Keep the last imported row for a repeated serial so duplicate Excel rows update the same record once.
+const getLatestRecordBySerial = (records) => Array.from(
+  records.reduce((latestBySerial, record) => {
+    latestBySerial.set(normalizeImportKey(record.boxSerialNumber), record);
+    return latestBySerial;
+  }, new Map()).values()
+);
+
+// Match workbook values by normalized header so small template variations still import correctly.
+const getImportValue = (row, possibleHeaders) => {
+  const normalizedRow = new Map(
+    Object.entries(row).map(([key, value]) => [normalizeHeaderKey(key), normalizeCellValue(value)])
+  );
+  const matchedHeader = possibleHeaders.find((header) => normalizedRow.has(normalizeHeaderKey(header)));
+  return matchedHeader ? normalizedRow.get(normalizeHeaderKey(matchedHeader)) : "";
+};
+
+// Build case-insensitive lookup maps for client, device type, and spare-part status matching.
+const createLookupMap = (items, keys) => {
+  const lookup = new Map();
+  items.forEach((item) => {
+    keys.forEach((key) => {
+      const value = item[key];
+      if (value) lookup.set(normalizeImportKey(value), item);
+    });
+  });
+  return lookup;
+};
+
+// Apply corporate workbook formatting to the generated XLSX file.
+const applySparePartsWorkbookStyles = (worksheet, columnCount, dataRowCount) => {
+  const range = XLSX.utils.decode_range(worksheet["!ref"]);
+  for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+    for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      if (!worksheet[address]) worksheet[address] = { t: "s", v: "" };
+      worksheet[address].s = getSparePartsExcelStyle(rowIndex);
+    }
+  }
+
+  worksheet.A1.s = {
+    ...getSparePartsExcelStyle(0),
+    font: { name: "Century Gothic", sz: 14, bold: false, color: { rgb: "000000" } },
+    alignment: { horizontal: "left", vertical: "center" },
+  };
+
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+    const address = XLSX.utils.encode_cell({ r: 3, c: columnIndex });
+    worksheet[address].s = {
+      ...getSparePartsExcelStyle(3),
+      fill: { fgColor: { rgb: "B7E1CD" } },
+      alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    };
+  }
+
+  for (let rowIndex = 4; rowIndex < dataRowCount + 4; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      worksheet[address].s = {
+        ...worksheet[address].s,
+        fill: { fgColor: { rgb: rowIndex % 2 === 0 ? "EAF7F3" : "FFFFFF" } },
+      };
+    }
+  }
+};
+
+const getSparePartsExcelStyle = (rowIndex) => ({
+  alignment: { horizontal: rowIndex >= 3 ? "center" : "left", vertical: "center", wrapText: true },
+  border: {
+    bottom: { style: "thin", color: { rgb: "D9E2EC" } },
+    left: { style: "thin", color: { rgb: "D9E2EC" } },
+    right: { style: "thin", color: { rgb: "D9E2EC" } },
+    top: { style: "thin", color: { rgb: "D9E2EC" } },
+  },
+  font: { name: "Century Gothic", sz: rowIndex === 0 ? 14 : 10, bold: false, color: { rgb: "000000" } },
+});
+
+const formatDateForFile = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const normalizeCellValue = (value) => String(value ?? "").trim();
+const normalizeHeaderKey = (value) => normalizeImportKey(value).replace(/[^a-z0-9]/g, "");
+const normalizeImportKey = (value) => String(value ?? "").trim().toLowerCase();
 
 const getAvailableQuantity = (parts = {}) =>
   sparePartColumns.reduce(

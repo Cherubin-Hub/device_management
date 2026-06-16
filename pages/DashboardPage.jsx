@@ -6,12 +6,6 @@ import {
   LinearProgress,
   Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
   useTheme,
@@ -22,15 +16,11 @@ import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import PaletteRoundedIcon from "@mui/icons-material/PaletteRounded";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import SortRoundedIcon from "@mui/icons-material/SortRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { useEffect, useMemo, useState } from "react";
-import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
-import { paginateRows } from "../src/lib/pagination.js";
 import { getWorkflowStatusDisplayName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
@@ -59,9 +49,6 @@ const defaultDashboardData = {
 export default function DashboardPage({ mode, onChangeMode, userDisplayName, userEmail }) {
   const theme = useTheme();
   const [dashboardData, setDashboardData] = useState(defaultDashboardData);
-  const [search, setSearch] = useState("");
-  const [sortConfig, setSortConfig] = useState({ key: "total", direction: "desc" });
-  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -181,169 +168,6 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
     },
   ];
 
-  const moduleRows = useMemo(() => {
-    const rows = [
-      {
-        attention: inventoryIssues,
-        completed: inventoryCompleted,
-        description: "Device records, support dates, QA dates, delivery, and remarks.",
-        module: "Repair Records",
-        open: Math.max(0, dashboardData.inventory.length - inventoryCompleted - inventoryIssues),
-        section: "Repair Management",
-        total: dashboardData.inventory.length,
-      },
-      {
-        attention: testingIssues,
-        completed: testingCompleted,
-        description: "Generated tracking records with package pictures and workflow people.",
-        module: "Repair Tracking",
-        open: Math.max(0, dashboardData.testing.length - testingCompleted - testingIssues),
-        section: "Repair Management",
-        total: dashboardData.testing.length,
-      },
-      {
-        attention: configurationCount - activeConfigurationCount,
-        completed: 0,
-        description: "Clients, statuses, and device types used by dropdown fields.",
-        module: "Configurations",
-        open: activeConfigurationCount,
-        section: "Repair Management",
-        total: configurationCount,
-      },
-      {
-        attention: 0,
-        completed: 0,
-        description: "Deleted records that can be restored by users.",
-        module: "Archived Records",
-        open: dashboardData.archivedRecords.length,
-        section: "Repair Management",
-        total: dashboardData.archivedRecords.length,
-      },
-      {
-        attention: 0,
-        completed: dashboardData.auditTrailCount,
-        description: "Movement history generated from inventory, workflow, and setup changes.",
-        module: "Audit Trail",
-        open: 0,
-        section: "Repair Management",
-        total: dashboardData.auditTrailCount,
-      },
-      {
-        attention: 0,
-        completed: 0,
-        description: "Unassigned repair tasks waiting to be claimed.",
-        module: "New Repair Device",
-        open: workflowCounts.newQueue,
-        section: "Testing Device",
-        total: workflowCounts.newQueue,
-      },
-      {
-        attention: 0,
-        completed: 0,
-        description: "Records finished by Repair By and waiting for support testing.",
-        module: "Ongoing Support Testing",
-        open: workflowCounts.supportQueue,
-        section: "Testing Device",
-        total: workflowCounts.supportQueue,
-      },
-      {
-        attention: 0,
-        completed: 0,
-        description: "Records finished by support testing and waiting for senior testing.",
-        module: "Ongoing Senior Testing",
-        open: workflowCounts.seniorQueue,
-        section: "Testing Device",
-        total: workflowCounts.seniorQueue,
-      },
-      {
-        attention: 0,
-        completed: 0,
-        description: "Active repair or testing tasks assigned to the signed-in user.",
-        module: "My Repair/Testing Device",
-        open: workflowCounts.myActive,
-        section: "Testing Device",
-        total: workflowCounts.myActive,
-      },
-      {
-        attention: 0,
-        completed: 0,
-        description: "All active repair tasks claimed by any user.",
-        module: "All Repair Device",
-        open: workflowCounts.allActive,
-        section: "Testing Device",
-        total: workflowCounts.allActive,
-      },
-      {
-        attention: 0,
-        completed: workflowCounts.done,
-        description: "Completed repair workflow records ready for PDF export.",
-        module: "Done Repair Device",
-        open: 0,
-        section: "Testing Device",
-        total: workflowCounts.done,
-      },
-      {
-        attention: inactiveUsers,
-        completed: 0,
-        description: "User display names, account status, and module access rights.",
-        module: "User",
-        open: activeUsers,
-        section: "Administration",
-        total: dashboardData.users.length,
-      },
-      {
-        attention: 0,
-        completed: dashboardData.releaseNotes.length,
-        description: "Application release note titles and content.",
-        module: "Release Notes",
-        open: 0,
-        section: "Administration",
-        total: dashboardData.releaseNotes.length,
-      },
-    ];
-
-    const query = search.trim().toLowerCase();
-    const filtered = rows.filter((row) => {
-      if (!query) return true;
-      return (
-        row.module.toLowerCase().includes(query) ||
-        row.section.toLowerCase().includes(query) ||
-        row.description.toLowerCase().includes(query)
-      );
-    });
-
-    return [...filtered].sort((first, second) => {
-      const firstValue = first[sortConfig.key];
-      const secondValue = second[sortConfig.key];
-      const direction = sortConfig.direction === "asc" ? 1 : -1;
-      if (typeof firstValue === "number") return (firstValue - secondValue) * direction;
-      return String(firstValue || "").localeCompare(String(secondValue || "")) * direction;
-    });
-  }, [
-    activeConfigurationCount,
-    activeUsers,
-    configurationCount,
-    dashboardData.archivedRecords.length,
-    dashboardData.auditTrailCount,
-    dashboardData.inventory.length,
-    dashboardData.releaseNotes.length,
-    dashboardData.testing.length,
-    dashboardData.users.length,
-    inactiveUsers,
-    inventoryCompleted,
-    inventoryIssues,
-    search,
-    sortConfig,
-    testingCompleted,
-    testingIssues,
-    workflowCounts,
-  ]);
-
-  const paginatedModuleRows = useMemo(
-    () => paginateRows(moduleRows, page),
-    [moduleRows, page]
-  );
-
   const statusBreakdown = useMemo(() => {
     const counts = new Map();
 
@@ -405,14 +229,6 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
     { color: dashboardAccent.red, label: "Inactive Users", value: inactiveUsers },
   ];
   const maxConfigValue = Math.max(...configRows.map((item) => item.value), 1);
-
-  const handleSort = (key) => {
-    setPage(1);
-    setSortConfig((current) => ({
-      key,
-      direction: current.key === key && current.direction === "desc" ? "asc" : "desc",
-    }));
-  };
 
   return (
     <Box className="vuexy-dashboard" component="main" sx={dashboardRootSx(theme)}>
@@ -619,88 +435,6 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
             ))}
           </Stack>
         </Paper>
-
-        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: "1 / -1", overflow: "hidden" }}>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            alignItems={{ xs: "stretch", md: "center" }}
-            justifyContent="space-between"
-            spacing={1.5}
-            sx={{ p: 2, borderBottom: `1px solid ${panelBorder(theme)}` }}
-          >
-            <PanelTitle
-              icon={<Inventory2RoundedIcon />}
-              subtitle="Current record counts grouped by active application module"
-              title="Module Overview"
-            />
-            <TextField
-              size="small"
-              value={search}
-              onChange={(event) => {
-                setPage(1);
-                setSearch(event.target.value);
-              }}
-              placeholder="Search module or section"
-              InputProps={{ startAdornment: <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18, mr: 0.75 }} /> }}
-              sx={{ minWidth: { xs: "100%", md: 300 } }}
-            />
-          </Stack>
-
-          <TableContainer sx={{ boxShadow: "none !important", overflowX: "hidden !important" }}>
-            <Table size="small" sx={dashboardTableSx(theme)}>
-              <TableHead>
-                <TableRow>
-                  {[
-                    ["section", "Section"],
-                    ["module", "Module"],
-                    ["total", "Total"],
-                    ["open", "Open / Active"],
-                    ["completed", "Completed"],
-                    ["attention", "Attention"],
-                  ].map(([key, label]) => (
-                    <TableCell key={key} align="center">
-                      <SortableHeader
-                        justify="center"
-                        label={label}
-                        onClick={() => handleSort(key)}
-                      />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {moduleRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                      No dashboard modules found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedModuleRows.map((row) => (
-                    <TableRow key={`${row.section}-${row.module}`} hover>
-                      <TableCell align="center">
-                        <Chip label={row.section} size="small" sx={moduleChipSx(theme)} />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography sx={{ ...centerTextSx, fontSize: 12 }}>
-                          {row.module}
-                        </Typography>
-                        <Typography sx={{ ...mutedCenterTextSx, fontSize: 11, lineHeight: 1.25 }}>
-                          {row.description}
-                        </Typography>
-                      </TableCell>
-                      <NumberCell color={dashboardAccent.teal} value={row.total} />
-                      <NumberCell color={dashboardAccent.purple} value={row.open} />
-                      <NumberCell color={dashboardAccent.green} value={row.completed} />
-                      <NumberCell color={row.attention > 0 ? dashboardAccent.red : "#8a94a6"} value={row.attention} />
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          <TablePaginationControls count={moduleRows.length} page={page} onChange={setPage} />
-        </Paper>
       </Box>
     </Box>
   );
@@ -769,40 +503,6 @@ function ProgressRow({ color, label, max, value }) {
         sx={progressSx(color)}
       />
     </Box>
-  );
-}
-
-function SortableHeader({ justify = "center", label, onClick }) {
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent={justify}
-      spacing={0.25}
-      onClick={onClick}
-      sx={{
-        cursor: "pointer",
-        justifyContent: `${justify} !important`,
-        textAlign: "center !important",
-        userSelect: "none",
-        width: "100%",
-      }}
-    >
-      <Typography component="span" sx={{ ...centerTextSx, fontSize: 11 }}>
-        {label}
-      </Typography>
-      <SortRoundedIcon sx={{ fontSize: 14, opacity: 0.65 }} />
-    </Stack>
-  );
-}
-
-function NumberCell({ color = "#8a94a6", value }) {
-  return (
-    <TableCell align="center">
-      <Typography sx={{ color, fontSize: 12 }}>
-        {value}
-      </Typography>
-    </TableCell>
   );
 }
 
@@ -1017,39 +717,4 @@ const valueChipSx = (color) => ({
   color,
   height: 22,
   minWidth: 34,
-});
-
-const moduleChipSx = (theme) => ({
-  bgcolor: theme.palette.mode === "dark" ? "rgba(115,103,240,0.16)" : "rgba(115,103,240,0.10)",
-  color: dashboardAccent.purple,
-});
-
-const dashboardTableSx = (theme) => ({
-  minWidth: 900,
-  "& th": {
-    bgcolor: theme.palette.mode === "dark" ? "#2f3349" : "#f3f6fb",
-    fontSize: 11,
-    lineHeight: 1.2,
-    px: 1,
-    py: 1,
-    textAlign: "center !important",
-    verticalAlign: "middle !important",
-  },
-  "& th .MuiStack-root": {
-    justifyContent: "center !important",
-    textAlign: "center !important",
-    width: "100%",
-  },
-  "& th .MuiTypography-root": {
-    textAlign: "center !important",
-  },
-  "& td": {
-    fontSize: 11,
-    lineHeight: 1.25,
-    px: 1,
-    py: 0.85,
-  },
-  "& tbody tr:hover": {
-    bgcolor: theme.palette.mode === "dark" ? "rgba(115,103,240,0.12) !important" : "rgba(115,103,240,0.06) !important",
-  },
 });

@@ -354,6 +354,29 @@ function App() {
           />
         ) : null}
 
+        {sparePartsInventoryVisible ? (
+          <SidebarGroup
+            icon={<Inventory2RoundedIcon fontSize="small" />}
+            label="Device Inventory"
+            open={sparePartsInventoryOpen}
+            onClick={() => setSparePartsInventoryOpen((current) => !current)}
+          />
+        ) : null}
+
+        {sparePartsInventoryOpen && sparePartsInventoryVisible ? (
+          <Stack>
+            {hasAccess("deviceMonitoringSpareParts") ? (
+              <SidebarItem
+                active={visiblePage === "deviceMonitoringSpareParts"}
+                child
+                icon={<Inventory2RoundedIcon fontSize="small" />}
+                label="Device Monitoring (Spare Parts)"
+                onClick={() => setActivePage("deviceMonitoringSpareParts")}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
         {repairManagementVisible ? (
           <SidebarGroup
             icon={<Inventory2RoundedIcon fontSize="small" />}
@@ -399,29 +422,6 @@ function App() {
                 icon={<HistoryRoundedIcon fontSize="small" />}
                 label="Audit Trail"
                 onClick={() => setActivePage("auditTrail")}
-              />
-            ) : null}
-          </Stack>
-        ) : null}
-
-        {sparePartsInventoryVisible ? (
-          <SidebarGroup
-            icon={<Inventory2RoundedIcon fontSize="small" />}
-            label="Device Inventory"
-            open={sparePartsInventoryOpen}
-            onClick={() => setSparePartsInventoryOpen((current) => !current)}
-          />
-        ) : null}
-
-        {sparePartsInventoryOpen && sparePartsInventoryVisible ? (
-          <Stack>
-            {hasAccess("deviceMonitoringSpareParts") ? (
-              <SidebarItem
-                active={visiblePage === "deviceMonitoringSpareParts"}
-                child
-                icon={<Inventory2RoundedIcon fontSize="small" />}
-                label="Device Monitoring (Spare Parts)"
-                onClick={() => setActivePage("deviceMonitoringSpareParts")}
               />
             ) : null}
           </Stack>
@@ -611,7 +611,7 @@ function App() {
 function SidebarItem({ active, child = false, icon, label, onClick }) {
   return (
     <Box
-      className="sidebar-nav-item"
+      className={`sidebar-nav-item ${active ? "is-active" : ""}`}
       onClick={onClick}
       sx={{
         alignItems: "center",
@@ -646,7 +646,7 @@ function SidebarItem({ active, child = false, icon, label, onClick }) {
 function SidebarGroup({ icon, label, onClick, open }) {
   return (
     <Box
-      className="sidebar-nav-group"
+      className={`sidebar-nav-group ${open ? "is-open" : ""}`}
       onClick={onClick}
       sx={{
         alignItems: "center",

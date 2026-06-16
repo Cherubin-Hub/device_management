@@ -166,7 +166,7 @@ html[data-theme] .MuiTableCell-head {
   background-color: var(--app-table-head) !important;
   color: var(--app-text) !important;
   font-size: var(--table-font-size) !important;
-  font-weight: 400 !important;
+  font-weight: 700 !important;
   letter-spacing: 0 !important;
   text-transform: none;
 }
@@ -214,6 +214,12 @@ html[data-theme] .MuiInputBase-input {
 html[data-theme] .MuiTable-root .MuiChip-label,
 html[data-theme] .MuiTable-root .MuiSvgIcon-root {
   font-size: var(--table-font-size) !important;
+}
+
+/* Header cells stay bold even when nested Typography or Chip styles are used inside table headers. */
+html[data-theme] .MuiTable-root .MuiTableCell-head,
+html[data-theme] .MuiTable-root .MuiTableCell-head * {
+  font-weight: 700 !important;
 }
 
 html[data-theme] .MuiPaper-root > .MuiBox-root,
@@ -444,10 +450,13 @@ html[data-theme="pink"] input[type="date"]::-webkit-calendar-picker-indicator {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23be185d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E") !important;
 }
 
-/* Keep floating labels text-only, without square background patches on top of fields. */
+/* Give floating labels breathing room so the field border does not visually touch the label text. */
 html[data-theme] .MuiInputLabel-root.MuiInputLabel-shrink {
-  background: transparent !important;
-  padding: 0 !important;
+  background: var(--app-surface) !important;
+  border-radius: 4px;
+  line-height: 1.2 !important;
+  margin-left: -2px;
+  padding: 0 6px !important;
 }
 
 html[data-theme] .MuiButton-contained:not(.MuiButton-colorError) {
@@ -512,8 +521,50 @@ html[data-theme] .MuiChip-label {
 
 /* Compact sidebar mode keeps only icons visible until the user hovers or pins the sidebar. */
 .app-sidebar {
+  background: #111418 !important;
+  border-right-color: rgba(255, 255, 255, 0.1) !important;
   overflow-x: hidden;
   white-space: nowrap;
+}
+
+/* Pink mode gives the sidebar its own pink surface while keeping labels/icons readable. */
+html[data-theme="pink"] .app-sidebar {
+  background: linear-gradient(180deg, #3f1d2b 0%, #4a2232 48%, #422030 100%) !important;
+  border-right-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 18px 0 44px rgba(74, 34, 50, 0.16);
+}
+
+html[data-theme="pink"] .app-sidebar,
+html[data-theme="pink"] .app-sidebar * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html[data-theme="pink"] .app-sidebar .sidebar-brand {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+}
+
+html[data-theme="pink"] .app-sidebar .sidebar-nav-item,
+html[data-theme="pink"] .app-sidebar .sidebar-nav-group {
+  background-color: transparent !important;
+}
+
+html[data-theme="pink"] .app-sidebar .sidebar-nav-item:hover,
+html[data-theme="pink"] .app-sidebar .sidebar-nav-group:hover {
+  background-color: rgba(255, 255, 255, 0.09) !important;
+}
+
+html[data-theme="pink"] .app-sidebar .sidebar-nav-item.is-active,
+html[data-theme="pink"] .app-sidebar .sidebar-nav-group.is-open {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  border-left-color: #ffd6e7 !important;
+}
+
+html[data-theme="pink"] .app-sidebar .sidebar-pin-button,
+html[data-theme="pink"] .app-sidebar .sidebar-logout-button {
+  border-color: rgba(255, 255, 255, 0.45) !important;
 }
 
 /* Hide text labels in the default compact sidebar to keep the rail narrow. */
