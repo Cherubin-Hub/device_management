@@ -33,7 +33,7 @@ import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { paginateRows } from "../src/lib/pagination.js";
 import { supabase } from "../src/lib/supabase.js";
 
-const sparePartColumns = [
+export const sparePartColumns = [
   { key: "fingerscannerBoard", label: "Fingerscanner Board" },
   { key: "fingerscannerRibbon", label: "Fingerscanner Ribbon" },
   { key: "fingerprintSensorLight", label: "Fingerprint Sensor Light" },
@@ -59,7 +59,7 @@ const blankSparePartRecord = {
 
 const allDeviceTypesFilterValue = "__all_device_types__";
 const allClientsFilterValue = "__all_clients__";
-const sparePartsExportHeaders = [
+export const sparePartsExportHeaders = [
   "Device No.",
   "Client Name",
   "Device Type",
@@ -454,13 +454,6 @@ export default function DeviceMonitoringSparePartsPage() {
         </Stack>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          <input
-            ref={importInputRef}
-            accept=".xlsx,.xls"
-            hidden
-            type="file"
-            onChange={handleImportFile}
-          />
           <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setDialogMode("new")}>
             Add New Record
           </Button>
@@ -469,12 +462,6 @@ export default function DeviceMonitoringSparePartsPage() {
           </Button>
           <Button size="small" variant="contained" color="error" startIcon={<DeleteRoundedIcon />} disabled={!selectedRecord} onClick={handleDelete}>
             Delete
-          </Button>
-          <Button size="small" variant="contained" startIcon={<UploadFileRoundedIcon />} onClick={() => importInputRef.current?.click()}>
-            Import
-          </Button>
-          <Button size="small" variant="contained" startIcon={<DownloadRoundedIcon />} onClick={handleExport}>
-            Export
           </Button>
         </Stack>
       </Stack>
@@ -768,7 +755,7 @@ function SparePartsDialog({ clients, deviceTypes, initialValue, mode, onClose, o
   );
 }
 
-const mapSparePartFromDb = (item) => ({
+export const mapSparePartFromDb = (item) => ({
   id: item.id,
   clientId: item.client_id || "",
   clientName: item.clients?.name || "",
@@ -780,7 +767,7 @@ const mapSparePartFromDb = (item) => ({
   parts: item.parts_status || {},
 });
 
-const mapSparePartToDb = (item) => ({
+export const mapSparePartToDb = (item) => ({
   device_no: null,
   client_id: item.clientId || null,
   device_type_id: item.deviceTypeId || null,
@@ -791,7 +778,7 @@ const mapSparePartToDb = (item) => ({
 });
 
 // Convert worksheet rows into database-ready records while validating Configuration lookups.
-const parseSparePartsImportRows = (rows, clients, deviceTypes, statuses) => {
+export const parseSparePartsImportRows = (rows, clients, deviceTypes, statuses) => {
   const clientLookup = createLookupMap(clients, ["name", "client_code"]);
   const deviceTypeLookup = createLookupMap(deviceTypes, ["name"]);
   const statusLookup = createLookupMap(statuses, ["name"]);
@@ -854,7 +841,7 @@ const parseSparePartsImportRows = (rows, clients, deviceTypes, statuses) => {
 };
 
 // Keep the last imported row for a repeated serial so duplicate Excel rows update the same record once.
-const getLatestRecordBySerial = (records) => Array.from(
+export const getLatestRecordBySerial = (records) => Array.from(
   records.reduce((latestBySerial, record) => {
     latestBySerial.set(normalizeImportKey(record.boxSerialNumber), record);
     return latestBySerial;
@@ -883,7 +870,7 @@ const createLookupMap = (items, keys) => {
 };
 
 // Apply corporate workbook formatting to the generated XLSX file.
-const applySparePartsWorkbookStyles = (worksheet, columnCount, dataRowCount) => {
+export const applySparePartsWorkbookStyles = (worksheet, columnCount, dataRowCount) => {
   const range = XLSX.utils.decode_range(worksheet["!ref"]);
   for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
     for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
@@ -930,14 +917,14 @@ const getSparePartsExcelStyle = (rowIndex) => ({
   font: { name: "Century Gothic", sz: rowIndex === 0 ? 14 : 10, bold: false, color: { rgb: "000000" } },
 });
 
-const formatDateForFile = (date) =>
+export const formatDateForFile = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
 const normalizeCellValue = (value) => String(value ?? "").trim();
 const normalizeHeaderKey = (value) => normalizeImportKey(value).replace(/[^a-z0-9]/g, "");
-const normalizeImportKey = (value) => String(value ?? "").trim().toLowerCase();
+export const normalizeImportKey = (value) => String(value ?? "").trim().toLowerCase();
 
-const getAvailableQuantity = (parts = {}) =>
+export const getAvailableQuantity = (parts = {}) =>
   sparePartColumns.reduce(
     (total, column) => total + (String(parts[column.key] || "").trim().toUpperCase() === "AVAILABLE" ? 1 : 0),
     0
@@ -953,5 +940,5 @@ const getFallbackStatusColor = (status) => {
   return "#64748b";
 };
 
-const getSparePartLabel = (item) =>
+export const getSparePartLabel = (item) =>
   item?.boxSerialNumber || item?.clientName || item?.deviceTypeName || "Untitled spare parts record";

@@ -21,6 +21,7 @@ import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { useEffect, useMemo, useState } from "react";
+import { getAvailableQuantity, sparePartColumns } from "./DeviceMonitoringSparePartsPage.jsx";
 import { getWorkflowStatusDisplayName } from "../src/lib/repairWorkflow.js";
 import { supabase } from "../src/lib/supabase.js";
 
@@ -41,6 +42,7 @@ const defaultDashboardData = {
   inventory: [],
   releaseNotes: [],
   repairRecords: [],
+  spareParts: [],
   statuses: [],
   testing: [],
   users: [],
@@ -64,6 +66,7 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
         statusesResult,
         deviceTypesResult,
         repairRecordsResult,
+        sparePartsResult,
         archivedRecordsResult,
         auditTrailResult,
         usersResult,
@@ -75,6 +78,9 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
         supabase.from("statuses").select("id, name, color, is_active").order("name"),
         supabase.from("device_types").select("id, name, is_active").order("name"),
         supabase.from("repair_device_records").select("id, workflow_status, assigned_to_email, client_code, company"),
+        supabase
+          .from("spare_parts_inventory")
+          .select("id, client_id, device_type_id, box_serial_number, quantity_available, parts_status"),
         supabase.from("archived_records").select("id, module"),
         supabase.from("audit_trail").select("id", { count: "exact", head: true }),
         supabase.from("app_users").select("id, display_name, email, is_active"),
@@ -91,6 +97,7 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
         inventory: getRows(inventoryResult),
         releaseNotes: getRows(releaseNotesResult),
         repairRecords: getRows(repairRecordsResult),
+        spareParts: getRows(sparePartsResult),
         statuses: getRows(statusesResult),
         testing: getRows(testingResult),
         users: getRows(usersResult),
@@ -130,6 +137,11 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
   const configurationCount =
     dashboardData.clients.length + dashboardData.statuses.length + dashboardData.deviceTypes.length;
   const repairManagementTotal = dashboardData.inventory.length + dashboardData.testing.length;
+  const sparePartsMetrics = useMemo(
+    // Spare-parts counts are derived from the same part-status fields used by Device Monitoring.
+    () => buildSparePartsMetrics(dashboardData.spareParts),
+    [dashboardData.spareParts]
+  );
   const issueTotal = inventoryIssues + testingIssues;
   // Operational Records should reflect only active ongoing repair workflow records,
   // not the combined Repair Records + Repair Tracking + repair workflow totals.
@@ -206,6 +218,11 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
       value: dashboardData.users.length + dashboardData.releaseNotes.length,
     },
     {
+      color: dashboardAccent.teal,
+      label: "Device Inventory",
+      value: sparePartsMetrics.records,
+    },
+    {
       color: dashboardAccent.blue,
       label: "Audit and Archive",
       value: dashboardData.auditTrailCount + dashboardData.archivedRecords.length,
@@ -229,6 +246,13 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
     { color: dashboardAccent.red, label: "Inactive Users", value: inactiveUsers },
   ];
   const maxConfigValue = Math.max(...configRows.map((item) => item.value), 1);
+  const sparePartsRows = [
+    { color: dashboardAccent.green, label: "Available", value: sparePartsMetrics.available },
+    { color: dashboardAccent.orange, label: "Not Available", value: sparePartsMetrics.notAvailable },
+    { color: dashboardAccent.red, label: "Defective", value: sparePartsMetrics.defective },
+    { color: "#8a94a6", label: "N/A", value: sparePartsMetrics.notApplicable },
+  ];
+  const maxSparePartsValue = Math.max(...sparePartsRows.map((item) => item.value), 1);
 
   return (
     <Box className="vuexy-dashboard" component="main" sx={dashboardRootSx(theme)}>
@@ -373,6 +397,25 @@ export default function DashboardPage({ mode, onChangeMode, userDisplayName, use
             <SummaryCard {...card} />
           </Paper>
         ))}
+
+        <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", xl: "span 4" }, p: 2.2 }}>
+          <PanelTitle
+            icon={<Inventory2RoundedIcon />}
+            subtitle="Device Monitoring spare-parts availability"
+            title="Spare Parts Snapshot"
+          />
+          <Stack spacing={1.25} sx={{ mt: 1.5 }}>
+            {sparePartsRows.map((item) => (
+              <ProgressRow
+                key={item.label}
+                color={item.color}
+                label={item.label}
+                max={maxSparePartsValue}
+                value={item.value}
+              />
+            ))}
+          </Stack>
+        </Paper>
 
         <Paper elevation={0} sx={{ ...vuexyCardSx(theme), gridColumn: { xs: "1 / -1", xl: "span 4" }, p: 2.2 }}>
           <PanelTitle
@@ -521,6 +564,28 @@ function getRows(result) {
     return [];
   }
   return result?.data || [];
+}
+
+function buildSparePartsMetrics(records) {
+  return records.reduce(
+    (totals, record) => {
+      const parts = record.parts_status || {};
+
+      // Reuse the Device Monitoring availability rule so dashboard totals match the module table.
+      totals.available += getAvailableQuantity(parts);
+      totals.records += 1;
+
+      sparePartColumns.forEach((column) => {
+        const status = String(parts[column.key] || "N/A").trim().toUpperCase();
+        if (status === "DEFECTIVE") totals.defective += 1;
+        if (status === "NOT AVAILABLE") totals.notAvailable += 1;
+        if (!status || status === "N/A") totals.notApplicable += 1;
+      });
+
+      return totals;
+    },
+    { available: 0, defective: 0, notApplicable: 0, notAvailable: 0, records: 0 }
+  );
 }
 
 function buildWorkflowCounts(records, userEmail) {

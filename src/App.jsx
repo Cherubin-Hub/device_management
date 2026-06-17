@@ -26,12 +26,14 @@ import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import PushPinRoundedIcon from "@mui/icons-material/PushPinRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
+import StorageRoundedIcon from "@mui/icons-material/StorageRounded";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import ArchivedRecordsPage from "../pages/ArchivedRecordsPage";
 import AuditTrailPage from "../pages/AuditTrailPage";
 import ConfigurationsPage from "../pages/ConfigurationsPage";
 import DashboardPage from "../pages/DashboardPage";
+import DataMigrationPage from "../pages/DataMigrationPage";
 import DeviceMonitoringSparePartsPage from "../pages/DeviceMonitoringSparePartsPage";
 import DeviceManagementPage from "../pages/RepairRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
@@ -39,6 +41,7 @@ import LoginPage from "../pages/LoginPage";
 import OngoingTestingPage from "../pages/RepairTrackingPage";
 import RepairDeviceCheckPage from "../pages/RepairDeviceCheckPage";
 import RepairDeviceWorkflowPage from "../pages/RepairDeviceWorkflowPage";
+import ReportsPage from "../pages/ReportsPage";
 import ReleaseNotesPage from "../pages/ReleaseNotesPage";
 import UserManagementPage from "../pages/UserManagementPage";
 import { DEFAULT_ACCESS_RIGHTS, normalizeAccessRights } from "./lib/accessRights";
@@ -56,6 +59,10 @@ function App() {
   const [testingDeviceOpen, setTestingDeviceOpen] = useState(false);
   // Keep Administration collapsed until the user needs account or release-note setup.
   const [administrationOpen, setAdministrationOpen] = useState(false);
+  // Keep Data Migration collapsed so import/export tools stay grouped and intentional.
+  const [dataMigrationOpen, setDataMigrationOpen] = useState(false);
+  // Keep Reports collapsed until the user needs report-generation pages.
+  const [reportsOpen, setReportsOpen] = useState(false);
   // Persist whether the sidebar stays expanded or only expands while hovered.
   const [sidebarPinned, setSidebarPinned] = useState(() => localStorage.getItem("endivio-sidebar-pinned") === "true");
   // Store the selected repair workflow id when the user opens the checking page.
@@ -256,6 +263,8 @@ function App() {
   const sparePartsInventoryVisible = ["deviceMonitoringSpareParts"].some(hasAccess);
   const testingDeviceVisible = ["newRepairDevice", "ongoingSupportTesting", "ongoingSeniorTesting", "myRepairDevice", "allRepairDevice", "doneRepairDevice"].some(hasAccess);
   const administrationVisible = ["users", "ConfigurationsPage", "releaseNotes"].some(hasAccess);
+  const dataMigrationVisible = ["dataMigrationDeviceInventory", "dataMigrationRepairManagement"].some(hasAccess);
+  const reportsVisible = ["reportsDeviceInventory", "reportsRepairManagement"].some(hasAccess);
   // Render the first allowed page when a user's rights no longer include the selected module.
   const guardedPageKey = activePage === "repairDeviceCheck" ? repairBackPage : activePage;
   const visiblePage = session && currentAppUser && !hasAccess(guardedPageKey)
@@ -495,6 +504,70 @@ function App() {
           </Stack>
         ) : null}
 
+        {reportsVisible ? (
+          <SidebarGroup
+            icon={<AssessmentRoundedIcon fontSize="small" />}
+            label="Reports"
+            open={reportsOpen}
+            onClick={() => setReportsOpen((current) => !current)}
+          />
+        ) : null}
+
+        {reportsOpen && reportsVisible ? (
+          <Stack>
+            {hasAccess("reportsDeviceInventory") ? (
+              <SidebarItem
+                active={visiblePage === "reportsDeviceInventory"}
+                child
+                icon={<Inventory2RoundedIcon fontSize="small" />}
+                label="Device Inventory"
+                onClick={() => setActivePage("reportsDeviceInventory")}
+              />
+            ) : null}
+            {hasAccess("reportsRepairManagement") ? (
+              <SidebarItem
+                active={visiblePage === "reportsRepairManagement"}
+                child
+                icon={<AssessmentRoundedIcon fontSize="small" />}
+                label="Repair Management"
+                onClick={() => setActivePage("reportsRepairManagement")}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
+        {dataMigrationVisible ? (
+          <SidebarGroup
+            icon={<StorageRoundedIcon fontSize="small" />}
+            label="Data Migration"
+            open={dataMigrationOpen}
+            onClick={() => setDataMigrationOpen((current) => !current)}
+          />
+        ) : null}
+
+        {dataMigrationOpen && dataMigrationVisible ? (
+          <Stack>
+            {hasAccess("dataMigrationDeviceInventory") ? (
+              <SidebarItem
+                active={visiblePage === "dataMigrationDeviceInventory"}
+                child
+                icon={<Inventory2RoundedIcon fontSize="small" />}
+                label="Device Inventory"
+                onClick={() => setActivePage("dataMigrationDeviceInventory")}
+              />
+            ) : null}
+            {hasAccess("dataMigrationRepairManagement") ? (
+              <SidebarItem
+                active={visiblePage === "dataMigrationRepairManagement"}
+                child
+                icon={<Inventory2RoundedIcon fontSize="small" />}
+                label="Repair Management"
+                onClick={() => setActivePage("dataMigrationRepairManagement")}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
         {administrationVisible ? (
           <SidebarGroup
             icon={<AdminPanelSettingsRoundedIcon fontSize="small" />}
@@ -536,13 +609,6 @@ function App() {
           </Stack>
         ) : null}
 
-        {/* <SidebarItem
-          active={visiblePage === "testing"}
-          icon={<AssessmentRoundedIcon fontSize="small" />}
-          label="Testing Report"
-          onClick={() => setActivePage("testing")}
-        /> */}
-
         <Box className="sidebar-user-panel" sx={{ mt: "auto", p: 1.25 }}>
           <Divider sx={{ borderColor: "rgba(255,255,255,0.12)", mb: 1.25 }} />
           <Typography className="sidebar-label" variant="caption" sx={{ color: "#9fb0bf", display: "block", mb: 0.5 }}>
@@ -580,6 +646,10 @@ function App() {
         {visiblePage === "deviceInventoryRecords" && hasAccess("deviceInventoryRecords") ? <DeviceManagementPage /> : null}
         {visiblePage === "ongoingTesting" && hasAccess("ongoingTesting") ? <OngoingTestingPage /> : null}
         {visiblePage === "deviceMonitoringSpareParts" && hasAccess("deviceMonitoringSpareParts") ? <DeviceMonitoringSparePartsPage /> : null}
+        {visiblePage === "dataMigrationDeviceInventory" && hasAccess("dataMigrationDeviceInventory") ? <DataMigrationPage mode="deviceInventory" /> : null}
+        {visiblePage === "dataMigrationRepairManagement" && hasAccess("dataMigrationRepairManagement") ? <DataMigrationPage mode="repairManagement" /> : null}
+        {visiblePage === "reportsDeviceInventory" && hasAccess("reportsDeviceInventory") ? <ReportsPage mode="deviceInventory" /> : null}
+        {visiblePage === "reportsRepairManagement" && hasAccess("reportsRepairManagement") ? <ReportsPage mode="repairManagement" /> : null}
         {visiblePage === "ConfigurationsPage" && hasAccess("ConfigurationsPage") ? <ConfigurationsPage /> : null}
         {visiblePage === "archivedRecords" && hasAccess("archivedRecords") ? <ArchivedRecordsPage /> : null}
         {visiblePage === "auditTrail" && hasAccess("auditTrail") ? <AuditTrailPage /> : null}
@@ -752,6 +822,10 @@ function getFirstAccessiblePage(accessRights) {
     "archivedRecords",
     "auditTrail",
     "deviceMonitoringSpareParts",
+    "dataMigrationDeviceInventory",
+    "dataMigrationRepairManagement",
+    "reportsDeviceInventory",
+    "reportsRepairManagement",
     "newRepairDevice",
     "ongoingSupportTesting",
     "ongoingSeniorTesting",

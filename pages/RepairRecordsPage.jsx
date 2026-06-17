@@ -20,7 +20,6 @@ import {
 } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
-import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
@@ -382,10 +381,6 @@ export default function DeviceManagementPage() {
     setDraftFilters((current) => ({ ...current, [field]: event.target.value }));
   };
 
-  const handleExport = () => {
-    exportExcel(displayedItems, statuses);
-  };
-
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
       <Stack
@@ -440,9 +435,6 @@ export default function DeviceManagementPage() {
           </Button>
           <Button size="small" variant="contained" color="error" startIcon={<DeleteRoundedIcon />} disabled={!selectedItem} onClick={handleDelete} sx={{ textTransform: "none", fontWeight: 600 }}>
             Delete
-          </Button>
-          <Button size="small" variant="contained" startIcon={<DownloadRoundedIcon />} onClick={handleExport} sx={{ textTransform: "none", fontWeight: 600 }}>
-            Export
           </Button>
         </Stack>
       </Stack>
@@ -770,7 +762,7 @@ const isInsideRange = (value, from, to) => {
 
 const formatDisplayDate = (value) => value ? new Date(`${value}T00:00:00`).toLocaleDateString() : "-";
 
-const mapDeviceFromDb = (item) => ({
+export const mapDeviceFromDb = (item) => ({
   // Normalize Supabase row shape into the field names used by React state and forms.
   id: item.id,
   company: item.company || "",
@@ -797,7 +789,7 @@ const mapDeviceFromDb = (item) => ({
   remarks: item.remarks || "",
 });
 
-const mapDeviceToDb = (item) => ({
+export const mapDeviceToDb = (item) => ({
   // Normalize React form state back into Supabase column names.
   company: item.company || null,
   client_id: item.clientId || null,
@@ -848,7 +840,7 @@ const mapInventoryToOngoingDb = (item) => ({
   source_inventory_id: item.id || null,
 });
 
-const syncOngoingTestingFromInventory = async (item) => {
+export const syncOngoingTestingFromInventory = async (item) => {
   // Build the generated Ongoing Testing payload from the saved inventory row.
   const payload = mapInventoryToOngoingDb(item);
   // Update the existing generated testing row first, using source_inventory_id as the link.
@@ -907,7 +899,7 @@ const mapInventoryToRepairDb = (item) => ({
   with_adapter: item.withAdapter || "No",
 });
 
-const syncRepairDeviceFromInventory = async (item) => {
+export const syncRepairDeviceFromInventory = async (item) => {
   // Build the repair workflow payload from inventory fields only.
   const payload = mapInventoryToRepairDb(item);
   // Try updating an existing generated repair row first.
@@ -944,14 +936,14 @@ const syncRepairDeviceFromInventory = async (item) => {
   return "";
 };
 
-const getDeviceLabel = (item) =>
+export const getDeviceLabel = (item) =>
   item?.snNumber || item?.cstNumber || item?.ticketNumber || item?.clientCode || item?.company || "Untitled record";
 
 const normalizeStatusName = (value) =>
   // Normalize status names so lookup still works even if casing or spaces differ.
   String(value || "").trim().toLowerCase();
 
-const findStatusByName = (statuses, statusName) =>
+export const findStatusByName = (statuses, statusName) =>
   // Find the configured Status row that matches the automatic workflow status name.
   statuses.find((status) => normalizeStatusName(status.name) === normalizeStatusName(statusName));
 
@@ -964,7 +956,7 @@ const getLocalDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-const getAutomaticInventoryStatusName = (item) => {
+export const getAutomaticInventoryStatusName = (item) => {
   // Completed is the final inventory workflow state once QA has an end date.
   if (item.endDateQa) return "Completed";
   // Ongoing QA starts as soon as Start QA has a value.
@@ -979,7 +971,7 @@ const getAutomaticInventoryStatusName = (item) => {
   return "N/A";
 };
 
-const exportExcel = async (items, statuses) => {
+export const exportRepairRecordsExcel = async (items, statuses) => {
   // Pull workflow assignee names from the generated tracking records so the Excel output includes every tester column.
   const trackingByInventoryId = await loadTrackingPeopleByInventoryId(items);
   const generatedDate = getLocalDateString();

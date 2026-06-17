@@ -228,6 +228,36 @@ html[data-theme] .MuiPaper-root .MuiTypography-root {
   text-align: center;
 }
 
+/* Report menu rows follow the reference list layout, so titles stay anchored to the left. */
+html[data-theme] .report-list-row-copy,
+html[data-theme] .report-list-row-copy .report-list-row-title {
+  text-align: left !important;
+}
+
+/* Repair report date filters keep their floating labels permanently shrunk above the input border. */
+html[data-theme] .reports-repair-filter-panel .reports-date-filter-field .MuiInputBase-root {
+  min-height: 46px !important;
+}
+
+html[data-theme] .reports-repair-filter-panel .reports-date-filter-field .MuiInputBase-input {
+  padding-top: 13px !important;
+  text-align: center !important;
+}
+
+html[data-theme] .reports-repair-filter-panel .reports-date-filter-field .MuiInputLabel-root,
+html[data-theme] .reports-repair-filter-panel .reports-date-filter-field .MuiInputLabel-shrink {
+  background: var(--app-bg);
+  color: var(--text-primary) !important;
+  font-size: 0.72rem !important;
+  left: 0 !important;
+  line-height: 1 !important;
+  padding: 0 5px;
+  text-align: left !important;
+  transform: translate(14px, -7px) scale(0.75) !important;
+  transform-origin: left top !important;
+  z-index: 2;
+}
+
 /* Release Notes editor uses document-style writing fields, so its values stay left-aligned. */
 html[data-theme] .release-notes-editor-field .MuiInputBase-input,
 html[data-theme] .release-notes-editor-field textarea.MuiInputBase-input {
