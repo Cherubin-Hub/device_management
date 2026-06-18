@@ -201,7 +201,8 @@ export default function DeviceManagementPage() {
       setStatuses(statusesResult.data || []);
       setClients(clientsResult.data || []);
       setDeviceTypes(deviceTypesResult.data || []);
-      setSelectedId(mappedItems[0]?.id || null);
+      // Do not auto-select the first row; users must click a row before editing or deleting.
+      setSelectedId((current) => (mappedItems.some((item) => item.id === current) ? current : null));
       setIsLoading(false);
     }
 
@@ -374,7 +375,8 @@ export default function DeviceManagementPage() {
       summary: `Archived inventory record for ${getDeviceLabel(selectedItem)}.`,
     });
     setItems((current) => current.filter((item) => item.id !== selectedId));
-    setSelectedId(items.find((item) => item.id !== selectedId)?.id || null);
+    // Keep Edit/Delete disabled after deletion until the user intentionally selects another row.
+    setSelectedId(null);
   };
 
   const updateFilter = (field) => (event) => {

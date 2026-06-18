@@ -592,7 +592,8 @@ function buildWorkflowCounts(records, userEmail) {
   const normalizedEmail = String(userEmail || "").toLowerCase();
   const isDone = (record) => record.workflow_status === "Done Repair Device";
   return {
-    allActive: records.filter((record) => record.assigned_to_email && !isDone(record)).length,
+    // Active workflow records include both unassigned queue items and assigned user tasks.
+    allActive: records.filter((record) => !isDone(record)).length,
     done: records.filter(isDone).length,
     myActive: records.filter((record) => String(record.assigned_to_email || "").toLowerCase() === normalizedEmail && !isDone(record)).length,
     newQueue: records.filter((record) => !record.assigned_to_email && isNewRepairStage(record.workflow_status)).length,

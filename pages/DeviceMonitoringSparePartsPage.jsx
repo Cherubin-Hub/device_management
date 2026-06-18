@@ -157,7 +157,8 @@ export default function DeviceMonitoringSparePartsPage() {
       setClients(clientsResult.data || []);
       setDeviceTypes(deviceTypesResult.data || []);
       setSparePartsStatuses(statusesResult.data || []);
-      setSelectedId(mappedRecords[0]?.id || null);
+      // Do not auto-select the first row; users must click a row before editing or deleting.
+      setSelectedId((current) => (mappedRecords.some((record) => record.id === current) ? current : null));
       setIsLoading(false);
     }
 
@@ -287,7 +288,8 @@ export default function DeviceMonitoringSparePartsPage() {
       summary: `Deleted spare parts monitoring record for ${getSparePartLabel(selectedRecord)}.`,
     });
     setRecords((current) => current.filter((record) => record.id !== selectedRecord.id));
-    setSelectedId(records.find((record) => record.id !== selectedRecord.id)?.id || null);
+    // Keep Edit/Delete disabled after deletion until the user intentionally selects another row.
+    setSelectedId(null);
   };
 
   const handleExport = () => {
@@ -385,14 +387,14 @@ export default function DeviceMonitoringSparePartsPage() {
 
       const updatedRecords = updatedResults.map((result) => mapSparePartFromDb(result.data));
       const insertedRecords = (insertResult.data || []).map(mapSparePartFromDb);
-      const nextChangedRecords = [...updatedRecords, ...insertedRecords];
 
       setRecords((current) => {
         const updatedById = new Map(updatedRecords.map((record) => [record.id, record]));
         const currentWithUpdates = current.map((record) => updatedById.get(record.id) || record);
         return [...currentWithUpdates, ...insertedRecords];
       });
-      setSelectedId(nextChangedRecords[0]?.id || selectedId);
+      // Import should not silently select a row because that enables Edit/Delete without user intent.
+      setSelectedId((current) => current);
       setImportNotice({
         message: `Import completed. ${insertedRecords.length} new record(s) added and ${updatedRecords.length} existing record(s) updated.`,
         severity: "success",
@@ -930,7 +932,7 @@ export const getAvailableQuantity = (parts = {}) =>
     0
   );
 
-const getDisplayDeviceNumber = (page, index) => (page - 1) * 20 + index + 1;
+const getDisplayDeviceNumber = (page, index) => (page === "all" ? index + 1 : (page - 1) * 20 + index + 1);
 
 const getFallbackStatusColor = (status) => {
   const normalizedStatus = String(status || "").trim().toUpperCase();

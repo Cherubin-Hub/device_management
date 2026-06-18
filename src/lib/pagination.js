@@ -14,6 +14,8 @@ export function clampPage(page, totalRows, pageSize = TABLE_PAGE_SIZE) {
 // Return only the rows for the current visible page without changing the original filtered data.
 export function paginateRows(rows, page, pageSize = TABLE_PAGE_SIZE) {
   const safeRows = Array.isArray(rows) ? rows : [];
+  // "all" is used by the shared Load All button when the user intentionally wants every filtered row.
+  if (page === "all") return safeRows;
   const safePage = clampPage(page, safeRows.length, pageSize);
   const startIndex = (safePage - 1) * pageSize;
   return safeRows.slice(startIndex, startIndex + pageSize);

@@ -91,7 +91,8 @@ export default function OngoingTestingPage() {
 
       const mappedItems = (testsResult.data || []).map(mapTestFromDb);
       setItems(mappedItems);
-      setSelectedId(mappedItems[0]?.id || null);
+      // Do not auto-select the first row; image/actions require an explicit user row click.
+      setSelectedId((current) => (mappedItems.some((item) => item.id === current) ? current : null));
       setIsLoading(false);
     }
 

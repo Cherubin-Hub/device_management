@@ -48,6 +48,42 @@ import { DEFAULT_ACCESS_RIGHTS, normalizeAccessRights } from "./lib/accessRights
 import { getUserDisplayName } from "./lib/repairWorkflow";
 import { supabase } from "./lib/supabase";
 
+// Centralized UI contrast tokens. Keep this aligned with src/index.css data-theme variables.
+const THEME_TOKENS = {
+  dark: {
+    background: "#121821",
+    paper: "#1b2430",
+    text: "#f4f7fb",
+    mutedText: "#c6ced8",
+    divider: "rgba(226,232,240,0.16)",
+    primary: "#34d6cb",
+    primaryContrast: "#06211f",
+  },
+  light: {
+    background: "#edf2f7",
+    paper: "#ffffff",
+    text: "#111827",
+    mutedText: "#334155",
+    divider: "#c8d3df",
+    primary: "#0f9f95",
+    primaryContrast: "#ffffff",
+  },
+  pink: {
+    background: "#fff5f9",
+    paper: "#ffffff",
+    text: "#2a1320",
+    mutedText: "#5a3245",
+    divider: "#e8a9c4",
+    primary: "#be185d",
+    primaryContrast: "#ffffff",
+  },
+};
+
+function getThemeTokens(mode) {
+  // Fall back to dark tokens when localStorage contains an old or invalid value.
+  return THEME_TOKENS[mode] || THEME_TOKENS.dark;
+}
+
 function App() {
   // Track the active module so the sidebar can switch pages without changing routes.
   const [activePage, setActivePage] = useState("dashboard");
@@ -75,6 +111,8 @@ function App() {
   const [themeMode, setThemeMode] = useState(() => localStorage.getItem("endivio-theme") || "dark");
   // MUI accepts only light or dark palette modes; pink uses light mode plus CSS theme tokens.
   const muiPaletteMode = themeMode === "dark" ? "dark" : "light";
+  // Reuse one token source for every MUI component so contrast changes stay centralized.
+  const themeTokens = useMemo(() => getThemeTokens(themeMode), [themeMode]);
   // Store the Supabase Auth session used to protect the application pages.
   const [session, setSession] = useState(null);
   // Store the freshest Supabase Auth user because profile metadata can change after login.
@@ -90,17 +128,17 @@ function App() {
       createTheme({
         palette: {
           mode: muiPaletteMode,
-          primary: { main: "#20d0c4", contrastText: "#051312" },
+          primary: { main: themeTokens.primary, contrastText: themeTokens.primaryContrast },
           secondary: { main: "#7c3aed" },
           background: {
-            default: themeMode === "dark" ? "#101418" : "#f4f7f8",
-            paper: themeMode === "dark" ? "#1a1f24" : "#ffffff",
+            default: themeTokens.background,
+            paper: themeTokens.paper,
           },
           text: {
-            primary: themeMode === "dark" ? "#f8fafc" : "#172033",
-            secondary: themeMode === "dark" ? "#a7aab4" : "#536174",
+            primary: themeTokens.text,
+            secondary: themeTokens.mutedText,
           },
-          divider: themeMode === "dark" ? "rgba(255,255,255,0.10)" : "#dde5ef",
+          divider: themeTokens.divider,
           error: { main: "#ef4444" },
           success: { main: "#22c55e" },
           warning: { main: "#f59e0b" },
@@ -146,7 +184,7 @@ function App() {
           },
         },
       }),
-    [muiPaletteMode, themeMode]
+    [muiPaletteMode, themeTokens]
   );
 
   const toggleThemeMode = () => {
@@ -180,58 +218,85 @@ function App() {
         return;
       }
 
-      // Retrieve the current Supabase session before deciding whether to show login or the app.
-      const { data } = await supabase.auth.getSession();
-      // Fetch the user from Supabase Auth so display_name changes are not stuck on the cached session.
-      const { data: userData } = data.session ? await supabase.auth.getUser() : { data: { user: null } };
-      const profile = userData.user
-        ? await loadAppUserProfile(userData.user, data.session?.user?.email)
-        : null;
+      try {
+        // Retrieve the current Supabase session before deciding whether to show login or the app.
+        const { data } = await withTimeout(supabase.auth.getSession(), "Supabase session check timed out");
+        // Fetch the user from Supabase Auth so display_name changes are not stuck on the cached session.
+        const { data: userData } = data.session
+          ? await withTimeout(supabase.auth.getUser(), "Supabase user lookup timed out")
+          : { data: { user: null } };
+        const profile = userData.user
+          ? await withTimeout(
+              loadAppUserProfile(userData.user, data.session?.user?.email),
+              "Application profile lookup timed out"
+            )
+          : null;
 
-      if (profile?.is_active === false) {
-        // Inactive users are signed out immediately so they cannot access protected modules.
-        await supabase.auth.signOut();
+        if (profile?.is_active === false) {
+          // Inactive users are signed out immediately so they cannot access protected modules.
+          await supabase.auth.signOut();
+          if (mounted) {
+            setAccessMessage("Your account is inactive. Please contact the administrator.");
+            setSession(null);
+            setCurrentUser(null);
+            setCurrentAppUser(null);
+            setIsAuthLoading(false);
+          }
+          return;
+        }
+
         if (mounted) {
-          setAccessMessage("Your account is inactive. Please contact the administrator.");
+          setSession(data.session || null);
+          setCurrentUser(userData.user || data.session?.user || null);
+          setCurrentAppUser(profile);
+          setIsAuthLoading(false);
+        }
+      } catch (error) {
+        // Never leave first-time visitors stuck on the loading screen when Supabase is slow or unreachable.
+        console.warn("Initial authentication load failed:", error.message);
+        if (mounted) {
           setSession(null);
           setCurrentUser(null);
           setCurrentAppUser(null);
           setIsAuthLoading(false);
         }
-        return;
-      }
-
-      if (mounted) {
-        setSession(data.session || null);
-        setCurrentUser(userData.user || data.session?.user || null);
-        setCurrentAppUser(profile);
-        setIsAuthLoading(false);
       }
     }
 
     loadSession();
     // Keep the UI in sync when Supabase signs the user in or out.
     const { data: authListener } = supabase?.auth.onAuthStateChange(async (_event, nextSession) => {
-      // Refresh the user object after auth changes so dashboard/sidebar display metadata updates.
-      const { data: userData } = nextSession ? await supabase.auth.getUser() : { data: { user: null } };
-      const profile = userData.user ? await loadAppUserProfile(userData.user, nextSession?.user?.email) : null;
+      try {
+        // Refresh the user object after auth changes so dashboard/sidebar display metadata updates.
+        const { data: userData } = nextSession
+          ? await withTimeout(supabase.auth.getUser(), "Supabase auth listener user lookup timed out")
+          : { data: { user: null } };
+        const profile = userData.user ? await loadAppUserProfile(userData.user, nextSession?.user?.email) : null;
 
-      if (profile?.is_active === false) {
-        // Block inactive accounts even when a session still exists in local storage.
-        await supabase.auth.signOut();
-        setAccessMessage("Your account is inactive. Please contact the administrator.");
-        setSession(null);
-        setCurrentUser(null);
+        if (profile?.is_active === false) {
+          // Block inactive accounts even when a session still exists in local storage.
+          await supabase.auth.signOut();
+          setAccessMessage("Your account is inactive. Please contact the administrator.");
+          setSession(null);
+          setCurrentUser(null);
+          setCurrentAppUser(null);
+          setIsAuthLoading(false);
+          return;
+        }
+
+        setAccessMessage("");
+        setSession(nextSession);
+        setCurrentUser(userData.user || nextSession?.user || null);
+        setCurrentAppUser(profile);
+        setIsAuthLoading(false);
+      } catch (error) {
+        // Auth listener failures should not lock the entire app on the loading indicator.
+        console.warn("Authentication listener failed:", error.message);
+        setSession(nextSession || null);
+        setCurrentUser(nextSession?.user || null);
         setCurrentAppUser(null);
         setIsAuthLoading(false);
-        return;
       }
-
-      setAccessMessage("");
-      setSession(nextSession);
-      setCurrentUser(userData.user || nextSession?.user || null);
-      setCurrentAppUser(profile);
-      setIsAuthLoading(false);
     }) || { data: null };
 
     return () => {
@@ -264,7 +329,7 @@ function App() {
   const testingDeviceVisible = ["newRepairDevice", "ongoingSupportTesting", "ongoingSeniorTesting", "myRepairDevice", "allRepairDevice", "doneRepairDevice"].some(hasAccess);
   const administrationVisible = ["users", "ConfigurationsPage", "releaseNotes"].some(hasAccess);
   const dataMigrationVisible = ["dataMigrationDeviceInventory", "dataMigrationRepairManagement"].some(hasAccess);
-  const reportsVisible = ["reportsDeviceInventory", "reportsRepairManagement"].some(hasAccess);
+  const reportsVisible = ["reportsDeviceInventory", "reportsRepairManagement", "reportsAdministration"].some(hasAccess);
   // Render the first allowed page when a user's rights no longer include the selected module.
   const guardedPageKey = activePage === "repairDeviceCheck" ? repairBackPage : activePage;
   const visiblePage = session && currentAppUser && !hasAccess(guardedPageKey)
@@ -323,7 +388,7 @@ function App() {
           top: 0,
           width: sidebarPinned ? 245 : 64,
           height: "100svh",
-          overflowY: "hidden",
+          overflow: "hidden",
           p: 1,
           transition: "width 160ms ease, flex-basis 160ms ease",
           zIndex: 20,
@@ -354,6 +419,17 @@ function App() {
           </IconButton>
         </Box>
 
+        <Box
+          className="sidebar-scroll-area"
+          component="nav"
+          sx={{
+            flex: "1 1 auto",
+            minHeight: 0,
+            overflowX: "hidden",
+            overflowY: "auto",
+            pr: 0.25,
+          }}
+        >
         {hasAccess("dashboard") ? (
           <SidebarItem
             active={visiblePage === "dashboard"}
@@ -422,15 +498,6 @@ function App() {
                 icon={<ArchiveRoundedIcon fontSize="small" />}
                 label="Archived Records"
                 onClick={() => setActivePage("archivedRecords")}
-              />
-            ) : null}
-            {hasAccess("auditTrail") ? (
-              <SidebarItem
-                active={visiblePage === "auditTrail"}
-                child
-                icon={<HistoryRoundedIcon fontSize="small" />}
-                label="Audit Trail"
-                onClick={() => setActivePage("auditTrail")}
               />
             ) : null}
           </Stack>
@@ -533,6 +600,15 @@ function App() {
                 onClick={() => setActivePage("reportsRepairManagement")}
               />
             ) : null}
+            {hasAccess("reportsAdministration") ? (
+              <SidebarItem
+                active={visiblePage === "reportsAdministration"}
+                child
+                icon={<AdminPanelSettingsRoundedIcon fontSize="small" />}
+                label="Audit Trail"
+                onClick={() => setActivePage("reportsAdministration")}
+              />
+            ) : null}
           </Stack>
         ) : null}
 
@@ -597,6 +673,17 @@ function App() {
                 onClick={() => setActivePage("ConfigurationsPage")}
               />
             ) : null}
+            
+            {hasAccess("auditTrail") ? (
+              <SidebarItem
+                active={visiblePage === "auditTrail"}
+                child
+                icon={<HistoryRoundedIcon fontSize="small" />}
+                label="Audit Trail"
+                onClick={() => setActivePage("auditTrail")}
+              />
+            ) : null}
+
             {hasAccess("releaseNotes") ? (
               <SidebarItem
                 active={visiblePage === "releaseNotes"}
@@ -608,6 +695,7 @@ function App() {
             ) : null}
           </Stack>
         ) : null}
+        </Box>
 
         <Box className="sidebar-user-panel" sx={{ mt: "auto", p: 1.25 }}>
           <Divider sx={{ borderColor: "rgba(255,255,255,0.12)", mb: 1.25 }} />
@@ -650,6 +738,7 @@ function App() {
         {visiblePage === "dataMigrationRepairManagement" && hasAccess("dataMigrationRepairManagement") ? <DataMigrationPage mode="repairManagement" /> : null}
         {visiblePage === "reportsDeviceInventory" && hasAccess("reportsDeviceInventory") ? <ReportsPage mode="deviceInventory" /> : null}
         {visiblePage === "reportsRepairManagement" && hasAccess("reportsRepairManagement") ? <ReportsPage mode="repairManagement" /> : null}
+        {visiblePage === "reportsAdministration" && hasAccess("reportsAdministration") ? <ReportsPage mode="administration" /> : null}
         {visiblePage === "ConfigurationsPage" && hasAccess("ConfigurationsPage") ? <ConfigurationsPage /> : null}
         {visiblePage === "archivedRecords" && hasAccess("archivedRecords") ? <ArchivedRecordsPage /> : null}
         {visiblePage === "auditTrail" && hasAccess("auditTrail") ? <AuditTrailPage /> : null}
@@ -746,6 +835,16 @@ function SidebarGroup({ icon, label, onClick, open }) {
   );
 }
 
+function withTimeout(promise, message, timeoutMs = 8000) {
+  // Guard startup Supabase calls so a slow first request cannot keep the app on the loading screen forever.
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]);
+}
+
 function normalizeAppUser(profile, fallbackProfile) {
   // Convert nullable database values into the shape the app shell expects.
   return {
@@ -826,6 +925,7 @@ function getFirstAccessiblePage(accessRights) {
     "dataMigrationRepairManagement",
     "reportsDeviceInventory",
     "reportsRepairManagement",
+    "reportsAdministration",
     "newRepairDevice",
     "ongoingSupportTesting",
     "ongoingSeniorTesting",

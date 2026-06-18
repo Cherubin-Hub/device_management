@@ -22,6 +22,11 @@ import TablePaginationControls from "../src/components/TablePaginationControls.j
 import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { paginateRows } from "../src/lib/pagination.js";
 import { supabase } from "../src/lib/supabase.js";
+import {
+  mapDeviceFromDb,
+  syncOngoingTestingFromInventory,
+  syncRepairDeviceFromInventory,
+} from "./RepairRecordsPage.jsx";
 
 const tableLabels = {
   device_inventory_items: "Inventory Records",
@@ -94,15 +99,24 @@ export default function ArchivedRecordsPage() {
     // Remove system columns because restored rows should receive fresh ids/timestamps.
     const restorePayload = stripEmptyId(archive.record_data || {});
 
-    // Insert the saved JSON payload back into the original source table.
-    const { error: restoreError } = await supabase
-      .from(archive.source_table)
-      .insert(restorePayload);
+    // Insert the saved JSON payload back into the original source table and return the new row.
+    const { data: restoredRecord, error: restoreError } = await restoreArchivedSourceRecord(
+      archive,
+      restorePayload
+    );
 
     if (restoreError) {
       setError(`Failed to restore record: ${restoreError.message}`);
       return;
     }
+
+    const restoredDevice = archive.source_table === "device_inventory_items"
+      ? mapDeviceFromDb(restoredRecord || restorePayload)
+      : null;
+
+    // Repair Records drive both Repair Tracking and Testing Device, so rebuild both linked rows after restore.
+    const ongoingSyncError = restoredDevice ? await syncOngoingTestingFromInventory(restoredDevice) : "";
+    const repairSyncError = restoredDevice ? await syncRepairDeviceFromInventory(restoredDevice) : "";
 
     // Remove the archive row only after the source record has been restored.
     const { error: deleteArchiveError } = await supabase
@@ -117,15 +131,24 @@ export default function ArchivedRecordsPage() {
 
     await logAuditEvent({
       action: "RESTORE",
-      afterData: restorePayload,
+      afterData: restoredRecord || restorePayload,
       beforeData: archive.record_data || null,
-      entityId: archive.id,
+      entityId: restoredRecord?.id || archive.id,
       entityTable: archive.source_table,
       module: tableLabels[archive.source_table] || archive.record_type,
       recordLabel: archive.record_label,
       summary: `Restored archived ${archive.record_type} record ${archive.record_label || ""}.`,
     });
     setArchives((current) => current.filter((item) => item.id !== archive.id));
+
+    if (ongoingSyncError || repairSyncError) {
+      setError(
+        [ongoingSyncError, repairSyncError]
+          .filter(Boolean)
+          .map((message) => message.replace("Inventory saved", "Record restored"))
+          .join(" ")
+      );
+    }
   };
 
   return (
@@ -265,6 +288,20 @@ const stripEmptyId = (recordData) => {
   delete rest.created_at;
   delete rest.updated_at;
   return rest;
+};
+
+const restoreArchivedSourceRecord = (archive, restorePayload) => {
+  // Inventory restore needs joined client/status data so the repair workflow sync receives the same shape as Repair Records saves.
+  if (archive.source_table === "device_inventory_items") {
+    return supabase
+      .from("device_inventory_items")
+      .insert(restorePayload)
+      .select("*, clients ( id, name, client_code ), statuses ( id, name, color )")
+      .single();
+  }
+
+  // Non-inventory archive sources do not need workflow re-syncing.
+  return supabase.from(archive.source_table).insert(restorePayload).select("*").single();
 };
 
 const formatArchiveDetails = (recordData = {}) => {

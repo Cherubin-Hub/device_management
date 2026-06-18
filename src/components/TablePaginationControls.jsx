@@ -1,9 +1,10 @@
-import { Pagination, Stack, Typography } from "@mui/material";
+import { Button, Pagination, Stack, Typography } from "@mui/material";
 import { clampPage, getPageCount, TABLE_PAGE_SIZE } from "../lib/pagination.js";
 
 export default function TablePaginationControls({ count, page, onChange, pageSize = TABLE_PAGE_SIZE }) {
   const totalRows = Number(count) || 0;
   const pageCount = getPageCount(totalRows, pageSize);
+  const isAllRowsVisible = page === "all";
   const safePage = clampPage(page, totalRows, pageSize);
 
   // Hide the controls when all rows already fit on one page.
@@ -11,8 +12,8 @@ export default function TablePaginationControls({ count, page, onChange, pageSiz
     return null;
   }
 
-  const firstVisibleRow = (safePage - 1) * pageSize + 1;
-  const lastVisibleRow = Math.min(safePage * pageSize, totalRows);
+  const firstVisibleRow = isAllRowsVisible ? 1 : (safePage - 1) * pageSize + 1;
+  const lastVisibleRow = isAllRowsVisible ? totalRows : Math.min(safePage * pageSize, totalRows);
 
   return (
     <Stack
@@ -25,14 +26,25 @@ export default function TablePaginationControls({ count, page, onChange, pageSiz
       <Typography variant="caption" color="text.secondary">
         Showing {firstVisibleRow}-{lastVisibleRow} of {totalRows}
       </Typography>
-      <Pagination
-        color="primary"
-        count={pageCount}
-        onChange={(_, nextPage) => onChange(nextPage)}
-        page={safePage}
-        shape="rounded"
-        size="small"
-      />
+      <Stack direction="row" alignItems="center" spacing={1}>
+        <Button
+          onClick={() => onChange(isAllRowsVisible ? 1 : "all")}
+          size="small"
+          variant={isAllRowsVisible ? "outlined" : "contained"}
+        >
+          {isAllRowsVisible ? `Show ${pageSize}` : "Load All"}
+        </Button>
+        {isAllRowsVisible ? null : (
+          <Pagination
+            color="primary"
+            count={pageCount}
+            onChange={(_, nextPage) => onChange(nextPage)}
+            page={safePage}
+            shape="rounded"
+            size="small"
+          />
+        )}
+      </Stack>
     </Stack>
   );
 }

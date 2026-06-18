@@ -143,7 +143,8 @@ export default function RepairDeviceWorkflowPage({ mode, onOpenRecord, userDispl
 
       const nextRecords = data || [];
       setRecords(nextRecords);
-      setSelectedId(nextRecords[0]?.id || null);
+      // Do not auto-select the first row; users must choose a row before queue actions run.
+      setSelectedId((current) => (nextRecords.some((record) => record.id === current) ? current : null));
       setIsLoading(false);
     }
 

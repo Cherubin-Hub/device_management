@@ -10,6 +10,7 @@ export const ACCESS_RIGHT_OPTIONS = [
   { key: "dataMigrationRepairManagement", label: "Repair Management Migration", group: "Data Migration" },
   { key: "reportsDeviceInventory", label: "Device Inventory Reports", group: "Reports" },
   { key: "reportsRepairManagement", label: "Repair Management Reports", group: "Reports" },
+  { key: "reportsAdministration", label: "Audit Trail Reports", group: "Reports" },
   { key: "newRepairDevice", label: "New Repair Device", group: "Testing Device" },
   { key: "ongoingSupportTesting", label: "Ongoing Support Testing", group: "Testing Device" },
   { key: "ongoingSeniorTesting", label: "Ongoing Senior Testing", group: "Testing Device" },

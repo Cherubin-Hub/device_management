@@ -99,7 +99,8 @@ export default function ClientStatusPage() {
       // Keep the existing configuration tabs usable while the new spare-parts SQL is still pending in Supabase.
       setSparePartsStatuses(sparePartsStatusesResult.data || []);
       setError(sparePartsStatusesResult.error ? "Run the Spare Parts Monitoring SQL in SUPABASE.md to enable Spare Parts Status." : "");
-      setSelectedId((current) => current || clientsResult.data?.[0]?.id || null);
+      // Do not auto-select the first row; users must click a row before editing or deleting.
+      setSelectedId((current) => current);
       setIsLoading(false);
     }
 
@@ -276,25 +277,17 @@ export default function ClientStatusPage() {
 
     if (type === "client") {
       setClients((current) => current.filter((item) => item.id !== id));
-      setSelectedId((current) =>
-        current === id ? clients.find((item) => item.id !== id)?.id || null : current
-      );
+      setSelectedId((current) => (current === id ? null : current));
     } else {
       if (type === "status") {
         setStatuses((current) => current.filter((item) => item.id !== id));
-        setSelectedId((current) =>
-          current === id ? statuses.find((item) => item.id !== id)?.id || null : current
-        );
+        setSelectedId((current) => (current === id ? null : current));
       } else if (type === "deviceType") {
         setDeviceTypes((current) => current.filter((item) => item.id !== id));
-        setSelectedId((current) =>
-          current === id ? deviceTypes.find((item) => item.id !== id)?.id || null : current
-        );
+        setSelectedId((current) => (current === id ? null : current));
       } else {
         setSparePartsStatuses((current) => current.filter((item) => item.id !== id));
-        setSelectedId((current) =>
-          current === id ? sparePartsStatuses.find((item) => item.id !== id)?.id || null : current
-        );
+        setSelectedId((current) => (current === id ? null : current));
       }
     }
 
