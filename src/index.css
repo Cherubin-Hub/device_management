@@ -270,6 +270,12 @@ html[data-theme] .reports-repair-filter-panel .reports-date-filter-field .MuiInp
   z-index: 2;
 }
 
+/* Dialog forms are data-entry surfaces, so values should read from the left instead of inheriting table centering. */
+html[data-theme] .MuiDialog-root .MuiTextField-root .MuiInputBase-input,
+html[data-theme] .MuiDialog-root .MuiTextField-root textarea.MuiInputBase-input {
+  text-align: left !important;
+}
+
 /* Release Notes editor uses document-style writing fields, so its values stay left-aligned. */
 html[data-theme] .release-notes-editor-field .MuiInputBase-input,
 html[data-theme] .release-notes-editor-field textarea.MuiInputBase-input {
@@ -292,6 +298,39 @@ html[data-theme] .release-notes-list-table .MuiTableCell-root {
 html[data-theme] .spare-parts-monitoring-dialog .MuiInputBase-input,
 html[data-theme] .spare-parts-monitoring-dialog .MuiSelect-select {
   text-align: left !important;
+}
+
+/* Email Configuration templates are editable message fields, so values must stay left-aligned. */
+html[data-theme] .email-template-editor-field .MuiInputBase-input,
+html[data-theme] .email-template-editor-field textarea.MuiInputBase-input {
+  text-align: left !important;
+}
+
+html[data-theme] .email-template-editor-field .MuiInputLabel-root {
+  left: 0 !important;
+  text-align: left !important;
+  transform-origin: left top !important;
+}
+
+html[data-theme] .email-configuration-table .MuiTableBody-root .MuiTableCell-root:nth-child(2),
+html[data-theme] .email-configuration-table .MuiTableBody-root .MuiTableCell-root:nth-child(3),
+html[data-theme] .email-configuration-table .MuiTableBody-root .MuiTableCell-root:nth-child(4),
+html[data-theme] .email-configuration-table .MuiTableBody-root .MuiTableCell-root:nth-child(5),
+html[data-theme] .email-configuration-table .MuiTableBody-root .MuiTableCell-root:nth-child(5) * {
+  text-align: left !important;
+}
+
+html[data-theme] .email-template-editor-dialog,
+html[data-theme] .email-template-editor-dialog .MuiDialogContent-root {
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+
+html[data-theme] .email-template-editor-dialog::-webkit-scrollbar,
+html[data-theme] .email-template-editor-dialog .MuiDialogContent-root::-webkit-scrollbar {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
 }
 
 /* Configuration add/edit dialogs are short forms, so they should not show inner scrollbars. */

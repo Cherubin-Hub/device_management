@@ -35,12 +35,23 @@ For Vercel, add the same variables in Project Settings > Environment Variables.
 
 1. Open Supabase SQL Editor.
 2. Make sure the SQL Editor role is admin/postgres for schema creation.
-3. Run the full SQL script below.
+3. For new projects, run the versioned files in `supabase/migrations` in numeric order. The full SQL script below remains as a reference snapshot.
 4. Open Supabase Authentication and create user accounts for login.
 5. Confirm the `ongoing-testing-images` storage bucket exists and is public.
 6. Add the environment variables in Vercel.
 7. Run `npm run build` before deployment.
 8. Deploy the frontend to Vercel.
+
+## 3.1 Versioned Migrations
+
+Use these files for safer production updates:
+
+- `supabase/migrations/001_initial_schema.sql`
+- `supabase/migrations/002_spare_parts_monitoring.sql`
+- `supabase/migrations/003_email_configuration.sql`
+- `supabase/migrations/004_access_rights_rls_hardening.sql`
+
+Run `004_access_rights_rls_hardening.sql` only after `app_users` profiles and access rights are configured, because it makes database policies enforce the same module rights used by the UI.
 
 ## 4. Full Supabase SQL Script
 
@@ -356,6 +367,22 @@ comment on table public.release_notes is 'Stores application release note titles
 create index if not exists release_notes_created_at_idx
 on public.release_notes(created_at desc); -- Index created date so newest release notes load first.
 
+-- Store Outlook email templates used by Repair Records register/unregister buttons.
+create table if not exists public.email_configurations (
+  id uuid primary key default gen_random_uuid(), -- Unique email configuration row identifier.
+  template_key text not null unique, -- Stable key such as registerDevice or unregisterDevice.
+  name text not null, -- Human-readable action name shown in Administration.
+  to_email text not null default '', -- Default To recipients for the generated email draft.
+  cc_email text not null default '', -- Default CC recipients for the generated email draft.
+  subject text not null default '', -- Subject template, with placeholders such as #SN.
+  body text not null default '', -- Body template, with placeholders such as #SN.
+  created_at timestamptz not null default now(), -- Date/time when the template was created.
+  updated_at timestamptz -- Date/time when the template was last edited.
+); -- End of email configuration table definition.
+
+-- Explain the business purpose of email configurations.
+comment on table public.email_configurations is 'Stores configurable email templates for Repair Records register and unregister device actions.';
+
 -- Enable RLS for client configuration.
 alter table public.clients enable row level security;
 
@@ -385,6 +412,9 @@ alter table public.app_users enable row level security;
 
 -- Enable RLS for release notes.
 alter table public.release_notes enable row level security;
+
+-- Enable RLS for email configuration templates.
+alter table public.email_configurations enable row level security;
 
 -- Remove old clients read policy before recreating it.
 drop policy if exists "authenticated users can read clients" on public.clients;
@@ -584,6 +614,25 @@ to authenticated
 using (true)
 with check (true); -- Keep app-level access rights responsible for showing the Release Notes module.
 
+-- Remove old email configuration read policy before recreating it.
+drop policy if exists "authenticated users can read email configurations" on public.email_configurations;
+
+-- Allow signed-in users to read email templates for Repair Records email drafts.
+create policy "authenticated users can read email configurations"
+on public.email_configurations for select
+to authenticated
+using (true);
+
+-- Remove old email configuration manage policy before recreating it.
+drop policy if exists "authenticated users can manage email configurations" on public.email_configurations;
+
+-- Allow signed-in users with visible Administration UI to manage email templates.
+create policy "authenticated users can manage email configurations"
+on public.email_configurations for all
+to authenticated
+using (true)
+with check (true); -- Keep app-level access rights responsible for showing the Email Configuration module.
+
 -- Create the public image bucket used by ongoing testing package photos.
 insert into storage.buckets (id, name, public)
 values ('ongoing-testing-images', 'ongoing-testing-images', true)
@@ -627,6 +676,33 @@ values
   ('T2200'), -- Common biometric device model.
   ('FaceID 1500') -- Common face recognition device model.
 on conflict (name) do nothing; -- Do not duplicate default device types when the setup script is rerun.
+
+-- Insert default editable Repair Records email templates.
+insert into public.email_configurations (template_key, name, subject, body)
+values
+  (
+    'registerDevice',
+    'Register Device',
+    'Register Device - #SN',
+    'Hi,' || chr(10) || chr(10) ||
+    'Please register device #SN.' || chr(10) || chr(10) ||
+    'Device Type: #DEVICE_TYPE' || chr(10) ||
+    'CST Number: #CST' || chr(10) ||
+    'Ticket Number: #TICKET' || chr(10) || chr(10) ||
+    'Thank you.'
+  ),
+  (
+    'unregisterDevice',
+    'Unregister Device',
+    'Unregister Device - #SN',
+    'Hi,' || chr(10) || chr(10) ||
+    'Please unregister device #SN.' || chr(10) || chr(10) ||
+    'Device Type: #DEVICE_TYPE' || chr(10) ||
+    'CST Number: #CST' || chr(10) ||
+    'Ticket Number: #TICKET' || chr(10) || chr(10) ||
+    'Thank you.'
+  )
+on conflict (template_key) do nothing; -- Preserve existing admin-edited email templates.
 
 -- Create editable app user profiles from existing Supabase Auth users.
 insert into public.app_users (id, display_name, email, is_active, access_rights)

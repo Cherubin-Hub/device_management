@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "outlook-helper": "powershell -ExecutionPolicy Bypass -File tools\\outlook-mail-helper.ps1",
+    "preview": "vite preview",
+    "test": "node --test \"tests/*.test.js\""
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

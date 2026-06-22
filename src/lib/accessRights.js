@@ -19,6 +19,7 @@ export const ACCESS_RIGHT_OPTIONS = [
   { key: "doneRepairDevice", label: "Done Repair Device", group: "Testing Device" },
   { key: "users", label: "User", group: "Administration" },
   { key: "ConfigurationsPage", label: "Configurations", group: "Administration" },
+  { key: "emailConfiguration", label: "Email Configuration", group: "Administration" },
   { key: "releaseNotesCreate", label: "Create Release Notes", group: "Administration", defaultAccess: false },
   { key: "releaseNotes", label: "Release Notes", group: "Administration" },
 ];

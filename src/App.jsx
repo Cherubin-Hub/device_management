@@ -21,6 +21,7 @@ import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import MarkEmailReadRoundedIcon from "@mui/icons-material/MarkEmailReadRounded";
 import BuildCircleRoundedIcon from "@mui/icons-material/BuildCircleRounded";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
@@ -37,6 +38,7 @@ import DataMigrationPage from "../pages/DataMigrationPage";
 import DeviceMonitoringSparePartsPage from "../pages/DeviceMonitoringSparePartsPage";
 import DeviceManagementPage from "../pages/RepairRecordsPage";
 import DeviceTestingPage from "../pages/DeviceTestingPage";
+import EmailConfigurationPage from "../pages/EmailConfigurationPage";
 import LoginPage from "../pages/LoginPage";
 import OngoingTestingPage from "../pages/RepairTrackingPage";
 import RepairDeviceCheckPage from "../pages/RepairDeviceCheckPage";
@@ -44,6 +46,7 @@ import RepairDeviceWorkflowPage from "../pages/RepairDeviceWorkflowPage";
 import ReportsPage from "../pages/ReportsPage";
 import ReleaseNotesPage from "../pages/ReleaseNotesPage";
 import UserManagementPage from "../pages/UserManagementPage";
+import { AppToastProvider } from "./components/AppToast";
 import { DEFAULT_ACCESS_RIGHTS, normalizeAccessRights } from "./lib/accessRights";
 import { getUserDisplayName } from "./lib/repairWorkflow";
 import { supabase } from "./lib/supabase";
@@ -327,7 +330,7 @@ function App() {
   const repairManagementVisible = ["deviceInventoryRecords", "ongoingTesting", "archivedRecords", "auditTrail"].some(hasAccess);
   const sparePartsInventoryVisible = ["deviceMonitoringSpareParts"].some(hasAccess);
   const testingDeviceVisible = ["newRepairDevice", "ongoingSupportTesting", "ongoingSeniorTesting", "myRepairDevice", "allRepairDevice", "doneRepairDevice"].some(hasAccess);
-  const administrationVisible = ["users", "ConfigurationsPage", "releaseNotes"].some(hasAccess);
+  const administrationVisible = ["users", "ConfigurationsPage", "emailConfiguration", "releaseNotes"].some(hasAccess);
   const dataMigrationVisible = ["dataMigrationDeviceInventory", "dataMigrationRepairManagement"].some(hasAccess);
   const reportsVisible = ["reportsDeviceInventory", "reportsRepairManagement", "reportsAdministration"].some(hasAccess);
   // Render the first allowed page when a user's rights no longer include the selected module.
@@ -347,6 +350,7 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <AppToastProvider>
       {isAuthLoading ? (
         <Box sx={{ alignItems: "center", bgcolor: "background.default", display: "flex", justifyContent: "center", minHeight: "100svh" }}>
           <CircularProgress />
@@ -673,6 +677,15 @@ function App() {
                 onClick={() => setActivePage("ConfigurationsPage")}
               />
             ) : null}
+            {hasAccess("emailConfiguration") ? (
+              <SidebarItem
+                active={visiblePage === "emailConfiguration"}
+                child
+                icon={<MarkEmailReadRoundedIcon fontSize="small" />}
+                label="Email Configuration"
+                onClick={() => setActivePage("emailConfiguration")}
+              />
+            ) : null}
             
             {hasAccess("auditTrail") ? (
               <SidebarItem
@@ -740,6 +753,7 @@ function App() {
         {visiblePage === "reportsRepairManagement" && hasAccess("reportsRepairManagement") ? <ReportsPage mode="repairManagement" /> : null}
         {visiblePage === "reportsAdministration" && hasAccess("reportsAdministration") ? <ReportsPage mode="administration" /> : null}
         {visiblePage === "ConfigurationsPage" && hasAccess("ConfigurationsPage") ? <ConfigurationsPage /> : null}
+        {visiblePage === "emailConfiguration" && hasAccess("emailConfiguration") ? <EmailConfigurationPage /> : null}
         {visiblePage === "archivedRecords" && hasAccess("archivedRecords") ? <ArchivedRecordsPage /> : null}
         {visiblePage === "auditTrail" && hasAccess("auditTrail") ? <AuditTrailPage /> : null}
         {visiblePage === "newRepairDevice" && hasAccess("newRepairDevice") ? <RepairDeviceWorkflowPage mode="new" userDisplayName={currentUserDisplayName} userEmail={currentUserEmail} onOpenRecord={(id, readOnly = true) => { setActiveRepairRecordId(id); setRepairReadOnly(readOnly); setRepairBackPage("newRepairDevice"); setActivePage("repairDeviceCheck"); }} /> : null}
@@ -763,6 +777,7 @@ function App() {
       </Box>
       </Box>
       )}
+      </AppToastProvider>
     </ThemeProvider>
   );
 }
