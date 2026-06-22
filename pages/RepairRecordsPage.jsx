@@ -1,8 +1,8 @@
+// Repair Records is the main inventory intake module and the source for repair/testing workflow records.
 import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -17,7 +17,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
@@ -33,7 +32,6 @@ import { archiveRecord } from "../src/lib/archiveRecord.js";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
 import { supabase } from "../src/lib/supabase.js";
 import TablePaginationControls from "../src/components/TablePaginationControls.jsx";
-import { useAppToast } from "../src/lib/appToast.js";
 import { defaultEmailTemplates } from "../src/lib/emailTemplates.js";
 import { paginateRows } from "../src/lib/pagination.js";
 import { applyRepairRecordTemplate } from "../src/lib/repairRecordFields.js";
@@ -66,36 +64,8 @@ const blankDevice = {
 
 const packageStyles = ["With Box", "Plastic", "Paper Bag"];
 const adapterOptions = ["Yes", "No"];
+// Table remarks are intentionally shortened; the full text remains available in the edit dialog.
 const remarksPreviewMaxLength = 90;
-const stickyCompanyColumnSx = {
-  left: 0,
-  minWidth: 150,
-  position: "sticky",
-  width: 150,
-  zIndex: 3,
-};
-const stickyClientColumnSx = {
-  left: 150,
-  minWidth: 112,
-  position: "sticky",
-  width: 112,
-  zIndex: 3,
-};
-const emailActionLabels = {
-  registerDevice: "Register Device",
-  unregisterDevice: "Unregister Device",
-};
-const repairRecordDialogGridSx = {
-  display: "grid",
-  gap: 1.25,
-  gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
-  "& .MuiTextField-root": {
-    minWidth: 0,
-  },
-  "& .MuiInputBase-root": {
-    minHeight: 46,
-  },
-};
 
 const compactSelectMenuProps = {
   marginThreshold: 12,
@@ -146,7 +116,6 @@ const compactSelectSlotProps = {
 };
 
 export default function DeviceManagementPage() {
-  const { showToast } = useAppToast();
   // Store inventory rows exactly as the UI table consumes them.
   const [items, setItems] = useState([]);
   // Store active clients and statuses for dropdowns and display chips.
@@ -157,10 +126,6 @@ export default function DeviceManagementPage() {
   const [emailTemplates, setEmailTemplates] = useState(defaultEmailTemplates);
   const [selectedId, setSelectedId] = useState(null);
   const [dialogMode, setDialogMode] = useState(null);
-  const [pendingEmailKey, setPendingEmailKey] = useState(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [emailAction, setEmailAction] = useState("");
-  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -200,6 +165,7 @@ export default function DeviceManagementPage() {
         setStatuses(data.statuses);
         setClients(data.clients);
         setDeviceTypes(data.deviceTypes);
+        // Merge saved email settings over defaults so Register/Unregister still work before configuration is edited.
         setEmailTemplates(mergeEmailTemplates(data.emailTemplates));
         // Do not auto-select the first row; users must click a row before editing or deleting.
         setSelectedId((current) => (mappedItems.some((item) => item.id === current) ? current : null));
@@ -250,7 +216,6 @@ export default function DeviceManagementPage() {
     const validationErrors = validateRepairRecordForm(form);
     if (validationErrors.length > 0) {
       setError(validationErrors.join(" "));
-      showToast("Please complete the required repair record fields.", "error");
       return;
     }
 
@@ -307,7 +272,6 @@ export default function DeviceManagementPage() {
         summary: `Created inventory record for ${getDeviceLabel(nextItem)}.`,
       });
       setError("");
-      showToast("Repair record saved.", "success");
       return;
     }
 
@@ -345,7 +309,6 @@ export default function DeviceManagementPage() {
       summary: `Updated inventory record for ${getDeviceLabel(updatedItem)}.`,
     });
     setError("");
-    showToast("Repair record updated.", "success");
 
   };
 
@@ -354,7 +317,6 @@ export default function DeviceManagementPage() {
       return;
     }
 
-    setIsDeleting(true);
     // Archive first so deleted inventory records can be restored by the user later.
     const { error: archiveError } = await archiveRecord({
       recordData: mapDeviceToDb(selectedItem),
@@ -365,7 +327,6 @@ export default function DeviceManagementPage() {
 
     if (archiveError) {
       setError(`Failed to archive record: ${archiveError.message}`);
-      setIsDeleting(false);
       return;
     }
 
@@ -373,7 +334,6 @@ export default function DeviceManagementPage() {
       await deleteRepairRecord(selectedId);
     } catch (deleteError) {
       setError(deleteError.message || "Failed to archive repair record.");
-      setIsDeleting(false);
       return;
     }
 
@@ -389,10 +349,7 @@ export default function DeviceManagementPage() {
     setItems((current) => current.filter((item) => item.id !== selectedId));
     // Keep Edit/Delete disabled after deletion until the user intentionally selects another row.
     setSelectedId(null);
-    setDeleteConfirmOpen(false);
-    setIsDeleting(false);
     setError("");
-    showToast("Repair record archived.", "success");
   };
 
   const updateFilter = (field) => (event) => {
@@ -404,8 +361,7 @@ export default function DeviceManagementPage() {
       return;
     }
 
-    setPendingEmailKey(null);
-    setEmailAction(templateKey);
+    // Replace placeholders such as #SN and #DEVICE_TYPE with values from the selected repair record.
     const template = emailTemplates[templateKey] || defaultEmailTemplates[templateKey];
     const payload = {
       to: applyRepairRecordTemplate(template.to_email || "", selectedItem, formatDisplayDate),
@@ -415,20 +371,14 @@ export default function DeviceManagementPage() {
     };
 
     try {
+      // Prefer the local Outlook COM helper for automatic sending; fall back to an editable draft if it is not running.
       await sendWithOutlookHelper(payload);
       setError("");
-      showToast(`${emailActionLabels[templateKey]} email sent.`, "success");
     } catch {
       openMailDraft(payload);
       setError("");
-      showToast("Outlook helper unavailable. Email draft opened instead.", "warning");
-    } finally {
-      setEmailAction("");
     }
   };
-
-  const isEmailBusy = Boolean(emailAction);
-  const selectedLabel = selectedItem ? getDeviceLabel(selectedItem) : "No record selected";
 
   return (
     <Box component="main" sx={{ minHeight: "100svh", p: { xs: 2, md: 3 }, textAlign: "left" }}>
@@ -456,9 +406,6 @@ export default function DeviceManagementPage() {
               <Inventory2RoundedIcon fontSize="small" />
           </Box>
           <Box className="module-page-copy">
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "left !important" }}>
-              Repair Management / Repair Records
-            </Typography>
             <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               Repair Records
             </Typography>
@@ -478,63 +425,39 @@ export default function DeviceManagementPage() {
           >
             Add New Record
           </Button>
-          <Tooltip title={!selectedItem ? "No record selected" : ""}>
-            <span>
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={<EditRoundedIcon />}
-                disabled={!selectedItem}
-                onClick={() => setDialogMode("edit")}
-                sx={{ textTransform: "none", fontWeight: 600 }}
-              >
-                Edit Record
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title={!selectedItem ? "No record selected" : ""}>
-            <span>
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={emailAction === "registerDevice" ? <CircularProgress color="inherit" size={14} /> : <MarkEmailReadRoundedIcon />}
-                disabled={!selectedItem || isEmailBusy}
-                onClick={() => setPendingEmailKey("registerDevice")}
-                sx={{ textTransform: "none", fontWeight: 600 }}
-              >
-                {emailAction === "registerDevice" ? "Sending" : "Register Device"}
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title={!selectedItem ? "No record selected" : ""}>
-            <span>
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={emailAction === "unregisterDevice" ? <CircularProgress color="inherit" size={14} /> : <UnsubscribeRoundedIcon />}
-                disabled={!selectedItem || isEmailBusy}
-                onClick={() => setPendingEmailKey("unregisterDevice")}
-                sx={{ textTransform: "none", fontWeight: 600 }}
-              >
-                {emailAction === "unregisterDevice" ? "Sending" : "Unregister Device"}
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title={!selectedItem ? "No record selected" : ""}>
-            <span>
-              <Button
-                size="small"
-                variant="contained"
-                color="error"
-                startIcon={isDeleting ? <CircularProgress color="inherit" size={14} /> : <DeleteRoundedIcon />}
-                disabled={!selectedItem || isDeleting || isEmailBusy}
-                onClick={() => setDeleteConfirmOpen(true)}
-                sx={{ textTransform: "none", fontWeight: 600 }}
-              >
-                {isDeleting ? "Deleting" : "Delete"}
-              </Button>
-            </span>
-          </Tooltip>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<EditRoundedIcon />}
+            disabled={!selectedItem}
+            onClick={() => setDialogMode("edit")}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            Edit Record
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<MarkEmailReadRoundedIcon />}
+            disabled={!selectedItem}
+            onClick={() => handleOpenEmail("registerDevice")}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            Register Device
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<UnsubscribeRoundedIcon />}
+            disabled={!selectedItem}
+            onClick={() => handleOpenEmail("unregisterDevice")}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            Unregister Device
+          </Button>
+          <Button size="small" variant="contained" color="error" startIcon={<DeleteRoundedIcon />} disabled={!selectedItem} onClick={handleDelete} sx={{ textTransform: "none", fontWeight: 600 }}>
+            Delete
+          </Button>
         </Stack>
       </Stack>
 
@@ -578,31 +501,6 @@ export default function DeviceManagementPage() {
         </Stack>
       </Paper>
 
-      <Box
-        sx={{
-          alignItems: "center",
-          border: "1px solid",
-          borderColor: selectedItem ? "primary.main" : "divider",
-          bgcolor: selectedItem ? "rgba(52, 214, 203, 0.10)" : "background.paper",
-          color: "text.primary",
-          display: "flex",
-          justifyContent: "space-between",
-          mb: 2,
-          minHeight: 38,
-          px: 1.5,
-          py: 0.75,
-        }}
-      >
-        <Typography variant="caption" sx={{ textAlign: "left !important" }}>
-          Selected: {selectedLabel}
-        </Typography>
-        {selectedItem ? (
-          <Typography variant="caption" color="text.secondary" sx={{ textAlign: "right !important" }}>
-            SN: {selectedItem.snNumber || "-"} | CST: {selectedItem.cstNumber || "-"} | Ticket: {selectedItem.ticketNumber || "-"}
-          </Typography>
-        ) : null}
-      </Box>
-
       {error ? (
         <Box sx={{ bgcolor: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 1.5, color: "#be123c", mb: 2, p: 1.5 }}>
           {error}
@@ -622,10 +520,7 @@ export default function DeviceManagementPage() {
                 lineHeight: 1.2,
                 px: 0.5,
                 py: 0.85,
-                position: "sticky",
                 textAlign: "center",
-                top: 0,
-                zIndex: 2,
               },
               "& td": {
                 fontSize: 11,
@@ -641,8 +536,8 @@ export default function DeviceManagementPage() {
           >
             <TableHead>
               <TableRow>
-                <TableCell align="center" sx={{ ...stickyCompanyColumnSx, bgcolor: "#d9d9d9", zIndex: 5 }}>Company</TableCell>
-                <TableCell align="center" sx={{ ...stickyClientColumnSx, bgcolor: "#d9d9d9", zIndex: 5 }}>Client Code</TableCell>
+                <TableCell align="center">Company</TableCell>
+                <TableCell align="center">Client Code</TableCell>
                 <TableCell align="center">Raised by</TableCell>
                 <TableCell align="center">Date Received</TableCell>
                 <TableCell align="center">Package Style</TableCell>
@@ -672,26 +567,16 @@ export default function DeviceManagementPage() {
               {!isLoading && displayedItems.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={18} align="center" sx={{ py: 4 }}>
-                    No repair records match the current filters.
+                    No records found.
                   </TableCell>
                 </TableRow>
               ) : null}
               {paginatedItems.map((item) => {
                 const status = statuses.find((entry) => entry.id === item.statusId);
                 return (
-                  <TableRow
-                    key={item.id}
-                    hover
-                    selected={item.id === selectedId}
-                    onClick={() => setSelectedId(item.id)}
-                    sx={{
-                      cursor: "pointer",
-                      "&.Mui-selected td": { bgcolor: "rgba(52, 214, 203, 0.18) !important" },
-                      "&.Mui-selected:hover td": { bgcolor: "rgba(52, 214, 203, 0.24) !important" },
-                    }}
-                  >
-                    <TableCell align="center" sx={{ ...stickyCompanyColumnSx, bgcolor: "background.paper" }}>{item.company || "-"}</TableCell>
-                    <TableCell align="center" sx={{ ...stickyClientColumnSx, bgcolor: "background.paper" }}>{item.clientCode || "-"}</TableCell>
+                  <TableRow key={item.id} hover selected={item.id === selectedId} onClick={() => setSelectedId(item.id)} sx={{ cursor: "pointer" }}>
+                    <TableCell align="center">{item.company || "-"}</TableCell>
+                    <TableCell align="center">{item.clientCode || "-"}</TableCell>
                     <TableCell align="center">{item.raisedBy || "-"}</TableCell>
                     <TableCell align="center">{formatDisplayDate(item.dateReceived)}</TableCell>
                     <TableCell align="center"><PackageChip value={item.packageStyle} /></TableCell>
@@ -736,25 +621,6 @@ export default function DeviceManagementPage() {
           title={dialogMode === "new" ? "New Device Inventory" : "Edit Device Inventory"}
         />
       ) : null}
-      <ConfirmDialog
-        confirmColor="primary"
-        confirmLabel="Send"
-        message={`${emailActionLabels[pendingEmailKey] || "Email"} for ${selectedLabel}`}
-        onClose={() => setPendingEmailKey(null)}
-        onConfirm={() => handleOpenEmail(pendingEmailKey)}
-        open={Boolean(pendingEmailKey)}
-        title="Send Email"
-      />
-      <ConfirmDialog
-        confirmColor="error"
-        confirmDisabled={isDeleting}
-        confirmLabel={isDeleting ? "Archiving" : "Archive"}
-        message={`Archive ${selectedLabel}`}
-        onClose={() => setDeleteConfirmOpen(false)}
-        onConfirm={handleDelete}
-        open={deleteConfirmOpen}
-        title="Archive Repair Record"
-      />
     </Box>
   );
 }
@@ -827,74 +693,73 @@ function DeviceDialog({ clients, deviceTypes, initialValue, onClose, onSave, ope
           py: 1,
         }}
       >
-        <Stack spacing={1.5} sx={{ pt: 0.5 }}>
-          <FormSection title="Client / Device">
-            <Box sx={repairRecordDialogGridSx}>
-              <TextField
-                label="Company"
-                value={form.company}
-                disabled
-                InputProps={{ readOnly: true }}
-                sx={{
-                  "& .MuiInputBase-root": { bgcolor: "action.disabledBackground" },
-                  "& .MuiInputBase-input": { color: "text.secondary" },
-                }}
-              />
-              <TextField select required size="small" label="Client Code" value={form.clientId || ""} onChange={updateClient} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>
-                <MenuItem value="">Select Client Code</MenuItem>
-                {clients.map((client) => (
-                  <MenuItem key={client.id} value={client.id}>
-                    {client.client_code}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField size="small" label="Raised by" value={form.raisedBy} onChange={updateField("raisedBy")} />
-              <TextField size="small" label="Date Received" type="date" value={form.dateReceived} onChange={updateField("dateReceived")} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField select size="small" label="Package Style" value={form.packageStyle} onChange={updateField("packageStyle")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>{packageStyles.map((style) => <MenuItem key={style} value={style}>{style}</MenuItem>)}</TextField>
-              <TextField size="small" label="CST Number" value={form.cstNumber} onChange={updateField("cstNumber")} />
-              <TextField size="small" label="Ticket Number" value={form.ticketNumber} onChange={updateField("ticketNumber")} />
-              <TextField required size="small" label="SN Number" value={form.snNumber} onChange={updateField("snNumber")} />
-              <TextField required select size="small" label="Device Type" value={form.deviceType} onChange={updateField("deviceType")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>
-                <MenuItem value="">Select Device Type</MenuItem>
-                {deviceTypes.map((deviceType) => (
-                  <MenuItem key={deviceType.id} value={deviceType.name}>
-                    {deviceType.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField select size="small" label="With Adapter" value={form.withAdapter} onChange={updateField("withAdapter")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>{adapterOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}</TextField>
-            </Box>
-          </FormSection>
-
-          <FormSection title="Repair / QA">
-            <Box sx={repairRecordDialogGridSx}>
-              <TextField size="small" label="Start Repairing Support" type="date" value={form.startRepairingSupport} onChange={updateField("startRepairingSupport")} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField size="small" label="End Date Support" type="date" value={form.endDateSupport} onChange={updateField("endDateSupport")} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField size="small" label="Start QA" type="date" value={form.startQa} onChange={updateField("startQa")} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField size="small" label="End Date QA" type="date" value={form.endDateQa} onChange={updateField("endDateQa")} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField
-                size="small"
-                label="Status"
-                value={statusDisplayValue}
-                disabled
-                fullWidth
-                helperText={automaticStatus ? "Automatic status" : `Add "${automaticStatusName}" in Configurations > Status`}
-                sx={{
-                  "& .MuiInputBase-root": { bgcolor: "action.disabledBackground" },
-                  "& .MuiInputBase-input": { color: "text.secondary" },
-                }}
-              />
-            </Box>
-          </FormSection>
-
-          <FormSection title="Delivery / Remarks">
-            <Box sx={repairRecordDialogGridSx}>
-              <TextField size="small" label="Date Delivered" type="date" value={form.dateDelivered} onChange={updateField("dateDelivered")} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField size="small" label="Give to" value={form.giveTo} onChange={updateField("giveTo")} />
-              <TextField size="small" label="Remarks" multiline minRows={3} value={form.remarks} onChange={updateField("remarks")} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
-            </Box>
-          </FormSection>
-        </Stack>
+        <Box
+          sx={{
+            display: "grid",
+            gap: 1.35,
+            gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
+            pt: 0.5,
+            "& .MuiTextField-root": {
+              minWidth: 0,
+            },
+            "& .MuiInputBase-root": {
+              minHeight: 46,
+            },
+          }}
+        >
+          <TextField
+            label="Company"
+            value={form.company}
+            disabled
+            InputProps={{ readOnly: true }}
+            sx={{
+              "& .MuiInputBase-root": { bgcolor: "action.disabledBackground" },
+              "& .MuiInputBase-input": { color: "text.secondary" },
+            }}
+          />
+          <TextField select required size="small" label="Client Code" value={form.clientId || ""} onChange={updateClient} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>
+            <MenuItem value="">Select Client Code</MenuItem>
+            {clients.map((client) => (
+              <MenuItem key={client.id} value={client.id}>
+                {client.client_code}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField size="small" label="Raised by" value={form.raisedBy} onChange={updateField("raisedBy")} />
+          <TextField size="small" label="Date Received" type="date" value={form.dateReceived} onChange={updateField("dateReceived")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField select size="small" label="Package Style" value={form.packageStyle} onChange={updateField("packageStyle")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>{packageStyles.map((style) => <MenuItem key={style} value={style}>{style}</MenuItem>)}</TextField>
+          <TextField size="small" label="CST Number" value={form.cstNumber} onChange={updateField("cstNumber")} />
+          <TextField size="small" label="Ticket Number" value={form.ticketNumber} onChange={updateField("ticketNumber")} />
+          <TextField required size="small" label="SN Number" value={form.snNumber} onChange={updateField("snNumber")} />
+          <TextField required select size="small" label="Device Type" value={form.deviceType} onChange={updateField("deviceType")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>
+            <MenuItem value="">Select Device Type</MenuItem>
+            {deviceTypes.map((deviceType) => (
+              <MenuItem key={deviceType.id} value={deviceType.name}>
+                {deviceType.name}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField select size="small" label="With Adapter" value={form.withAdapter} onChange={updateField("withAdapter")} SelectProps={{ MenuProps: compactSelectMenuProps }} slotProps={compactSelectSlotProps}>{adapterOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}</TextField>
+          <TextField size="small" label="Start Repairing Support" type="date" value={form.startRepairingSupport} onChange={updateField("startRepairingSupport")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="End Date Support" type="date" value={form.endDateSupport} onChange={updateField("endDateSupport")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="Start QA" type="date" value={form.startQa} onChange={updateField("startQa")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="End Date QA" type="date" value={form.endDateQa} onChange={updateField("endDateQa")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField
+            size="small"
+            label="Status"
+            value={statusDisplayValue}
+            disabled
+            fullWidth
+            helperText={automaticStatus ? "Automatic status" : `Add "${automaticStatusName}" in Configurations > Status`}
+            sx={{
+              "& .MuiInputBase-root": { bgcolor: "action.disabledBackground" },
+              "& .MuiInputBase-input": { color: "text.secondary" },
+            }}
+          />
+          <TextField size="small" label="Date Delivered" type="date" value={form.dateDelivered} onChange={updateField("dateDelivered")} slotProps={{ inputLabel: { shrink: true } }} />
+          <TextField size="small" label="Give to" value={form.giveTo} onChange={updateField("giveTo")} />
+          <TextField size="small" label="Remarks" multiline minRows={3} value={form.remarks} onChange={updateField("remarks")} sx={{ gridColumn: { xs: "auto", md: "1 / -1" } }} />
+        </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, pt: 1 }}>
         <Button onClick={onClose}>Cancel</Button>
@@ -908,42 +773,6 @@ function PackageChip({ value }) {
   if (!value) return <>-</>;
   const color = value === "With Box" ? "#bae6fd" : value === "Plastic" ? "#fde68a" : "#fecaca";
   return <Chip label={value} size="small" sx={{ bgcolor: color, fontWeight: 400 }} />;
-}
-
-function FormSection({ children, title }) {
-  return (
-    <Box
-      sx={{
-        border: "1px solid",
-        borderColor: "divider",
-        p: 1.25,
-      }}
-    >
-      <Typography variant="caption" sx={{ display: "block", mb: 1, textAlign: "left !important" }}>
-        {title}
-      </Typography>
-      {children}
-    </Box>
-  );
-}
-
-function ConfirmDialog({ confirmColor = "primary", confirmDisabled = false, confirmLabel, message, onClose, onConfirm, open, title }) {
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle fontWeight={900}>{title}</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" sx={{ textAlign: "left !important" }}>
-          {message}
-        </Typography>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button color={confirmColor} disabled={confirmDisabled} variant="contained" onClick={onConfirm}>
-          {confirmLabel}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
 }
 
 const isInsideRange = (value, from, to) => {
@@ -966,6 +795,7 @@ function RemarksPreview({ value }) {
     ? `${text.slice(0, remarksPreviewMaxLength).trimEnd()}.........`
     : text;
 
+  // Keep the row height stable even when users enter very long free-form remarks.
   return (
     <Box
       component="span"

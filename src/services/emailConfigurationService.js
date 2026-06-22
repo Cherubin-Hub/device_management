@@ -1,3 +1,4 @@
+// Email configuration service isolates Supabase reads/writes for Outlook template rows.
 import { defaultEmailTemplates, emailTemplateTypes } from "../lib/emailTemplates.js";
 import { supabase } from "../lib/supabase.js";
 
@@ -41,6 +42,7 @@ export async function saveEmailConfiguration(templateKey, value) {
 }
 
 export function mergeEmailTemplates(rows) {
+  // Defaults keep both actions usable even before an administrator saves custom text.
   const mergedTemplates = { ...defaultEmailTemplates };
   rows.forEach((item) => {
     mergedTemplates[item.template_key] = {

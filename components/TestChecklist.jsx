@@ -1,3 +1,4 @@
+// TestChecklist captures the checklist results used in repair/testing completion and reports.
 import {
   Box,
   Checkbox,

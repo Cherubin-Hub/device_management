@@ -1,3 +1,4 @@
+// Supabase client setup shared by every page and data service.
 import { createClient } from "@supabase/supabase-js";
 
 // Read Supabase settings from Vite environment variables.

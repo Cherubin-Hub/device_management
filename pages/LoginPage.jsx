@@ -1,3 +1,4 @@
+// Login handles Supabase authentication and blocks inactive or unauthorized users before the app shell loads.
 import {
   Alert,
   Box,

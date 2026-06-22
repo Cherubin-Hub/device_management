@@ -1,3 +1,4 @@
+// Reports builds filtered exports for inventory, repair management, and administration audit data.
 import {
   Box,
   Button,

@@ -1,3 +1,4 @@
+// Archived Records shows soft-deleted records and restores or permanently removes archived snapshots.
 import {
   Alert,
   Box,

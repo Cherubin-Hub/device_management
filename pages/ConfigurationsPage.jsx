@@ -1,3 +1,4 @@
+// Configurations manages lookup values used by the rest of the app, such as clients, statuses, and device types.
 import {
   Box,
   Button,

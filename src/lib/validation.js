@@ -1,3 +1,4 @@
+// Form validators keep required business fields consistent before data reaches Supabase or Outlook.
 export function validateRepairRecordForm(form) {
   const errors = [];
   if (!form.clientId || !form.clientCode) errors.push("Client Code is required.");

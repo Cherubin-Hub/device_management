@@ -1,3 +1,4 @@
+// Repair Device Check is the detail workspace for testing, approval, and report generation on a repair task.
 import {
   Alert,
   Box,

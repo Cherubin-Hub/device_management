@@ -1,3 +1,4 @@
+// Shared chips keep repair workflow status and priority labels visually consistent across pages.
 import { Chip } from "@mui/material";
 import { getWorkflowStatusColor, getWorkflowStatusDisplayName } from "../src/lib/repairWorkflow.js";
 

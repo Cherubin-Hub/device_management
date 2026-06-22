@@ -1,3 +1,4 @@
+/* Global theme and MUI override layer for the Endivio application UI. */
 @import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&display=swap");
 
 :root {
@@ -268,12 +269,6 @@ html[data-theme] .reports-repair-filter-panel .reports-date-filter-field .MuiInp
   transform: translate(14px, -7px) scale(0.75) !important;
   transform-origin: left top !important;
   z-index: 2;
-}
-
-/* Dialog forms are data-entry surfaces, so values should read from the left instead of inheriting table centering. */
-html[data-theme] .MuiDialog-root .MuiTextField-root .MuiInputBase-input,
-html[data-theme] .MuiDialog-root .MuiTextField-root textarea.MuiInputBase-input {
-  text-align: left !important;
 }
 
 /* Release Notes editor uses document-style writing fields, so its values stay left-aligned. */

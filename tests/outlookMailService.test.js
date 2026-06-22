@@ -1,3 +1,4 @@
+// Covers Outlook draft URL generation, especially encoding that previously produced plus signs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildMailDraftHref } from "../src/services/outlookMailService.js";

@@ -1,3 +1,4 @@
+// Spare Parts Monitoring tracks device inventory movements and stock-related configuration data.
 import {
   Box,
   Alert,

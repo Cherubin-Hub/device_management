@@ -1,3 +1,4 @@
+// Email Configuration lets administrators edit Outlook templates used by Repair Records actions.
 import {
   Box,
   Button,
@@ -16,19 +17,16 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import MarkEmailReadRoundedIcon from "@mui/icons-material/MarkEmailReadRounded";
 import { useEffect, useMemo, useState } from "react";
 import { logAuditEvent } from "../src/lib/auditTrail.js";
-import { useAppToast } from "../src/lib/appToast.js";
 import { defaultEmailTemplates, emailTemplateTypes } from "../src/lib/emailTemplates.js";
 import { EMAIL_PLACEHOLDER_OPTIONS } from "../src/lib/repairRecordFields.js";
 import { validateEmailTemplateForm } from "../src/lib/validation.js";
 import { fetchEmailConfigurations, saveEmailConfiguration } from "../src/services/emailConfigurationService.js";
 
 export default function EmailConfigurationPage() {
-  const { showToast } = useAppToast();
   const [templates, setTemplates] = useState(defaultEmailTemplates);
   const [selectedKey, setSelectedKey] = useState(null);
   const [dialogKey, setDialogKey] = useState(null);
@@ -66,6 +64,7 @@ export default function EmailConfigurationPage() {
   }, []);
 
   const rows = useMemo(
+    // Always show the supported actions even when Supabase has no saved row yet.
     () => emailTemplateTypes.map((item) => templates[item.key] || defaultEmailTemplates[item.key]),
     [templates]
   );
@@ -74,10 +73,10 @@ export default function EmailConfigurationPage() {
     const validationErrors = validateEmailTemplateForm(value);
     if (validationErrors.length > 0) {
       setError(validationErrors.join(" "));
-      showToast("Please complete the required email template fields.", "error");
       return;
     }
 
+    // Keep the previous row for audit trail comparison after the upsert succeeds.
     const previousTemplate = templates[templateKey] || defaultEmailTemplates[templateKey];
     let data;
     try {
@@ -107,7 +106,6 @@ export default function EmailConfigurationPage() {
       recordLabel: data.name,
       summary: `Updated ${data.name} email configuration.`,
     });
-    showToast("Email configuration saved.", "success");
   };
 
   return (
@@ -129,9 +127,6 @@ export default function EmailConfigurationPage() {
             <MarkEmailReadRoundedIcon fontSize="small" />
           </Box>
           <Box className="module-page-copy">
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "left !important" }}>
-              Administration / Email Configuration
-            </Typography>
             <Typography className="module-page-title" variant="h5" component="h1" fontWeight={900}>
               Email Configuration
             </Typography>
@@ -197,14 +192,13 @@ export default function EmailConfigurationPage() {
           initialValue={templates[dialogKey] || defaultEmailTemplates[dialogKey]}
           onClose={() => setDialogKey(null)}
           onSave={(value) => handleSave(dialogKey, value)}
-          onToast={showToast}
         />
       ) : null}
     </Box>
   );
 }
 
-function EmailTemplateDialog({ initialValue, onClose, onSave, onToast }) {
+function EmailTemplateDialog({ initialValue, onClose, onSave }) {
   const [form, setForm] = useState({
     toEmail: initialValue?.to_email || "",
     ccEmail: initialValue?.cc_email || "",
@@ -246,7 +240,7 @@ function EmailTemplateDialog({ initialValue, onClose, onSave, onToast }) {
             onChange={updateField("body")}
             sx={emailTemplateFieldSx}
           />
-          <PlaceholderPanel onToast={onToast} />
+          <PlaceholderPanel />
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -259,16 +253,7 @@ function EmailTemplateDialog({ initialValue, onClose, onSave, onToast }) {
   );
 }
 
-function PlaceholderPanel({ onToast }) {
-  const copyPlaceholder = async (placeholder) => {
-    try {
-      await navigator.clipboard.writeText(placeholder);
-      onToast?.(`${placeholder} copied.`, "success");
-    } catch {
-      onToast?.("Could not copy placeholder.", "error");
-    }
-  };
-
+function PlaceholderPanel() {
   return (
     <Box
       sx={{
@@ -281,17 +266,22 @@ function PlaceholderPanel({ onToast }) {
         Placeholders
       </Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+        {/* This list comes from the shared Repair Records field config so template help stays in sync. */}
         {EMAIL_PLACEHOLDER_OPTIONS.map((placeholder) => (
-          <Button
+          <Box
+            component="span"
             key={placeholder}
-            size="small"
-            startIcon={<ContentCopyRoundedIcon />}
-            variant="outlined"
-            onClick={() => copyPlaceholder(placeholder)}
-            sx={{ fontSize: 10.5, minHeight: 26, px: 0.85, py: 0.25, textTransform: "none" }}
+            sx={{
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1,
+              fontSize: 10.5,
+              px: 0.85,
+              py: 0.25,
+            }}
           >
             {placeholder}
-          </Button>
+          </Box>
         ))}
       </Box>
     </Box>

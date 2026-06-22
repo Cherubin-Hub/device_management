@@ -1,3 +1,4 @@
+// ESLint configuration keeps current code quality issues visible without blocking legacy warning debt.
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'

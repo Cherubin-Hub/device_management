@@ -1,3 +1,4 @@
+// Covers placeholder replacement used by Repair Records email automation.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyRepairRecordTemplate } from "../src/lib/repairRecordFields.js";

@@ -1,3 +1,4 @@
+// App owns authentication, theme state, sidebar navigation, and guarded module rendering.
 import {
   Alert,
   Box,
@@ -46,7 +47,6 @@ import RepairDeviceWorkflowPage from "../pages/RepairDeviceWorkflowPage";
 import ReportsPage from "../pages/ReportsPage";
 import ReleaseNotesPage from "../pages/ReleaseNotesPage";
 import UserManagementPage from "../pages/UserManagementPage";
-import { AppToastProvider } from "./components/AppToast";
 import { DEFAULT_ACCESS_RIGHTS, normalizeAccessRights } from "./lib/accessRights";
 import { getUserDisplayName } from "./lib/repairWorkflow";
 import { supabase } from "./lib/supabase";
@@ -350,7 +350,6 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppToastProvider>
       {isAuthLoading ? (
         <Box sx={{ alignItems: "center", bgcolor: "background.default", display: "flex", justifyContent: "center", minHeight: "100svh" }}>
           <CircularProgress />
@@ -777,7 +776,6 @@ function App() {
       </Box>
       </Box>
       )}
-      </AppToastProvider>
     </ThemeProvider>
   );
 }

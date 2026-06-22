@@ -1,3 +1,4 @@
+// Archive helpers copy records into archived_records before the source row is deleted.
 import { supabase } from "./supabase.js";
 
 export async function archiveRecord({ recordData, recordLabel, recordType, sourceTable }) {

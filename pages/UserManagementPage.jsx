@@ -1,3 +1,4 @@
+// User Management controls app users, active status, and module-level access rights.
 import {
   Alert,
   Box,

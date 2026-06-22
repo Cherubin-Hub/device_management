@@ -1,3 +1,4 @@
+// Release Notes manages user-visible application update notes and their supporting audit records.
 import {
   Alert,
   Box,

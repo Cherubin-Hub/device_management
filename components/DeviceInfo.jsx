@@ -1,3 +1,4 @@
+// DeviceInfo groups editable device identity and network fields for a repair/testing record.
 import {
   Box,
   Divider,

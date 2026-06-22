@@ -1,3 +1,4 @@
+// Device Testing is a small manual testing surface kept separate from the repair workflow modules.
 import {
   Box,
   Button,

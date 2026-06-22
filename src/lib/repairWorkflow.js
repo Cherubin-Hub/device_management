@@ -1,3 +1,4 @@
+// Repair workflow helpers normalize legacy status names into current display labels and colors.
 export function getWorkflowStatusColor(value) {
   // Map each workflow stage to a professional status color.
   if (value === "Repair By" || value === "For Testing") return "#2563eb";

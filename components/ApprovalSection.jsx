@@ -1,3 +1,4 @@
+// ApprovalSection displays the repair workflow approver fields in the final device-check form.
 import {
   Box,
   Divider,

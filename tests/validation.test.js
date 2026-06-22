@@ -1,3 +1,4 @@
+// Covers required-field validation for the riskiest form and email-template paths.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateEmailTemplateForm, validateRepairRecordForm } from "../src/lib/validation.js";

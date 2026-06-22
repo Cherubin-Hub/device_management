@@ -1,3 +1,4 @@
+// Default email templates are used until administrators save custom text in Email Configuration.
 export const emailTemplateTypes = [
   { key: "registerDevice", name: "Register Device" },
   { key: "unregisterDevice", name: "Unregister Device" },

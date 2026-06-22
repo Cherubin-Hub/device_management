@@ -1,3 +1,4 @@
+// Shared pagination controls keep all large tables on the same page-size behavior.
 import { Button, Pagination, Stack, Typography } from "@mui/material";
 import { clampPage, getPageCount, TABLE_PAGE_SIZE } from "../lib/pagination.js";
 

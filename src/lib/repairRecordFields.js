@@ -1,3 +1,4 @@
+// Single source for Repair Records fields that can be reused by tables, exports, and email placeholders.
 export const REPAIR_RECORD_FIELDS = [
   { key: "company", label: "Company", placeholder: "#COMPANY" },
   { key: "clientCode", label: "Client Code", placeholder: "#CLIENT_CODE" },
@@ -34,6 +35,7 @@ export function buildRepairRecordPlaceholderMap(item, formatDate) {
     const rawValue = item[field.key] || "";
     const value = field.type === "date" ? displayDate(rawValue) : rawValue;
     placeholders[field.placeholder] = value;
+    // Aliases keep older/simple placeholders like #SN working with the newer explicit names.
     (field.aliases || []).forEach((alias) => {
       placeholders[alias] = value;
     });
@@ -47,6 +49,7 @@ export function buildRepairRecordPlaceholderMap(item, formatDate) {
 export function applyRepairRecordTemplate(templateText, item, formatDate) {
   const placeholders = buildRepairRecordPlaceholderMap(item, formatDate);
 
+  // Replace every supported placeholder before handing the message to Outlook or mailto.
   return Object.entries(placeholders).reduce(
     (text, [placeholder, value]) => text.replaceAll(placeholder, value),
     templateText || ""

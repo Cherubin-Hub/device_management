@@ -1,3 +1,4 @@
+// Dashboard summarizes operational counts, recent activity, and module status for the signed-in user.
 import {
   Avatar,
   Box,

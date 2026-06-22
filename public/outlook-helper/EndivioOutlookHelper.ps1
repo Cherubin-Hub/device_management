@@ -1,3 +1,4 @@
+<# Packaged Outlook COM helper that runs on each user PC and sends through local Outlook. #>
 param(
   [int]$Port = 57991,
   [string]$ConfigPath = (Join-Path $PSScriptRoot "EndivioOutlookHelper.config.json")
@@ -9,6 +10,7 @@ $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add($prefix)
 
 function Get-HelperConfig {
+  # Each PC can override token, allowed browser origins, and log path without changing this script.
   $defaultLogPath = Join-Path $env:LOCALAPPDATA "Endivio\OutlookHelper\mail-helper.log"
   $config = [ordered]@{
     Token = "endivio-outlook-helper-v1"
@@ -101,6 +103,7 @@ function Write-JsonResponse {
 function Test-AuthorizedRequest {
   param([System.Net.HttpListenerRequest]$Request)
 
+  # Protect the localhost sender from random websites by checking both CORS origin and shared token.
   if (-not (Test-OriginAllowed $Request)) {
     return $false
   }
@@ -124,6 +127,7 @@ function Split-Recipients {
 function Send-OutlookMail {
   param($Payload)
 
+  # Outlook COM sends through the locally signed-in Outlook profile on this Windows account.
   $toRecipients = @(Split-Recipients $Payload.to)
   if ($toRecipients.Count -eq 0) {
     throw "The email has no To recipient."
@@ -171,6 +175,7 @@ try {
     }
 
     if ($request.HttpMethod -eq "OPTIONS") {
+      # Browser preflight must succeed before the React app can POST the send request.
       Write-JsonResponse -Request $request -Response $response -StatusCode 204 -Payload @{ ok = $true }
       continue
     }

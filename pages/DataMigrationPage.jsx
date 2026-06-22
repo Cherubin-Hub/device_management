@@ -1,3 +1,4 @@
+// Data Migration centralizes Excel import/export flows for inventory and repair-management records.
 import {
   Alert,
   Box,

@@ -1,4 +1,5 @@
 -- Email templates used by Repair Records register/unregister actions.
+-- Seed rows are required so the UI can show Register Device and Unregister Device templates immediately.
 
 create table if not exists public.email_configurations (
   id uuid primary key default gen_random_uuid(),

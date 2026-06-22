@@ -1,3 +1,4 @@
+// Audit Trail lists user and system activity so administrators can review record movement history.
 import {
   Alert,
   Box,

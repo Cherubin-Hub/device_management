@@ -1,5 +1,6 @@
 -- Optional RLS hardening.
 -- Apply after app_users rows are created and access_rights are configured.
+-- These policies mirror frontend access rights at the database layer.
 
 create or replace function public.has_app_access(access_key text)
 returns boolean

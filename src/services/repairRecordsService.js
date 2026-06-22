@@ -1,9 +1,11 @@
+// Repair Records service centralizes Supabase data access for the inventory intake module.
 import { emailTemplateTypes } from "../lib/emailTemplates.js";
 import { supabase } from "../lib/supabase.js";
 
 const repairRecordSelect = "*, clients ( id, name, client_code ), statuses ( id, name, color )";
 
 export async function fetchRepairRecordsData() {
+  // Load lookup tables and email templates with the records so the page can render and send without extra round trips.
   const [devicesResult, statusesResult, clientsResult, deviceTypesResult, emailTemplatesResult] = await Promise.all([
     supabase
       .from("device_inventory_items")
@@ -60,6 +62,7 @@ export async function fetchRepairRecordsData() {
   return {
     clients: clientsResult.data || [],
     deviceTypes: deviceTypesResult.data || [],
+    // Email configuration is optional during rollout; defaults are used if the table/migration is missing.
     emailTemplates: emailTemplatesResult.error ? [] : emailTemplatesResult.data || [],
     records: devicesResult.data || [],
     statuses: statusesResult.data || [],

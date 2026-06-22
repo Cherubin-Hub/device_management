@@ -1,7 +1,9 @@
+// Outlook mail service first tries the local helper and can build a mailto draft fallback.
 const outlookMailHelperUrl = "http://127.0.0.1:57991/send";
 const outlookHelperToken = "endivio-outlook-helper-v1";
 
 export async function sendWithOutlookHelper(payload) {
+  // Browser code cannot control Outlook directly, so it calls the local helper running on the user's PC.
   const response = await fetch(outlookMailHelperUrl, {
     method: "POST",
     headers: {
@@ -24,6 +26,7 @@ export function openMailDraft(payload) {
 }
 
 export function buildMailDraftHref(payload) {
+  // Manual encoding avoids URLSearchParams converting spaces to plus signs in Outlook drafts.
   const params = [
     payload.cc ? `cc=${encodeMailtoValue(payload.cc)}` : "",
     payload.subject ? `subject=${encodeMailtoValue(payload.subject)}` : "",
@@ -38,6 +41,7 @@ function encodeMailtoValue(value) {
 }
 
 function encodeMailRecipients(value) {
+  // Outlook accepts comma-separated recipients; users may configure either comma or semicolon lists.
   return String(value || "")
     .split(/[;,]/)
     .map((entry) => entry.trim())
